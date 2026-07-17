@@ -46,7 +46,9 @@ const { themeId, applyTheme } = useTheme()
             </span>
             <span class="theme-option__copy">
               <strong>{{ theme.name }}</strong>
-              <small>{{ theme.description }}</small>
+              <UiTips :text="theme.description" placement="top">
+                <small>{{ theme.description }}</small>
+              </UiTips>
             </span>
             <span v-if="themeId === theme.id" class="theme-option__check" aria-hidden="true">✓</span>
           </button>
@@ -239,8 +241,14 @@ const { themeId, applyTheme } = useTheme()
   font-weight: 650;
 }
 
-.theme-option__copy small {
+.theme-option__copy :deep(.ui-tips-anchor) {
+  display: block;
   margin-top: 5px;
+  overflow: hidden;
+}
+
+.theme-option__copy small {
+  display: block;
   overflow: hidden;
   color: var(--color-muted);
   font-size: 10px;

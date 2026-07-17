@@ -177,9 +177,12 @@ onBeforeUnmount(() => {
 }
 
 .ui-tips-body {
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 10px 12px;
-  white-space: pre-line;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
   overscroll-behavior: contain;
 }
 

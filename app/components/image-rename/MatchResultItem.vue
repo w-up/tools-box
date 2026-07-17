@@ -42,7 +42,9 @@ const confidenceLabel: Record<MatchConfidence, string> = {
           <img v-if="imageA" :src="imageA.previewUrl" :alt="`参考图片 ${imageA.name}`">
           <p v-else>未找到匹配图片</p>
         </div>
-        <small :title="imageA?.relativePath">{{ imageA?.name || '未匹配' }}</small>
+        <UiTips :text="imageA?.relativePath ?? '未匹配'" placement="top">
+          <small>{{ imageA?.name || '未匹配' }}</small>
+        </UiTips>
       </figure>
 
       <figure>
@@ -50,13 +52,17 @@ const confidenceLabel: Record<MatchConfidence, string> = {
         <div class="match-item__image-stage">
           <img :src="imageB.previewUrl" :alt="`待改名图片 ${imageB.name}`">
         </div>
-        <small :title="imageB.relativePath">{{ imageB.name }}</small>
+        <UiTips :text="imageB.relativePath" placement="top">
+          <small>{{ imageB.name }}</small>
+        </UiTips>
       </figure>
     </div>
 
     <div class="match-item__rename">
       <span>输出文件名</span>
-      <strong :class="{ 'match-item__target--matched': imageA }" :title="targetName">{{ targetName }}</strong>
+      <UiTips :text="targetName" placement="top">
+        <strong :class="{ 'match-item__target--matched': imageA }">{{ targetName }}</strong>
+      </UiTips>
     </div>
 
     <label class="match-item__association">

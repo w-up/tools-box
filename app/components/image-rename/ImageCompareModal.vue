@@ -42,14 +42,22 @@ watch(() => props.open, () => {
 
     <div class="compare-dialog__images">
       <figure>
-        <figcaption>参考组 A · {{ imageA?.name || '未匹配' }}</figcaption>
+        <figcaption>
+          <UiTips :text="`参考组 A · ${imageA?.name || '未匹配'}`" placement="top">
+            <span>参考组 A · {{ imageA?.name || '未匹配' }}</span>
+          </UiTips>
+        </figcaption>
         <div class="compare-dialog__image-stage">
           <img v-if="imageA" :src="imageA.previewUrl" :alt="`参考图片 ${imageA.name}`" :style="{ transform: `scale(${zoom})` }">
           <p v-else>没有自动匹配的参考图片</p>
         </div>
       </figure>
       <figure>
-        <figcaption>待改名组 B · {{ imageB.name }}</figcaption>
+        <figcaption>
+          <UiTips :text="`待改名组 B · ${imageB.name}`" placement="top">
+            <span>待改名组 B · {{ imageB.name }}</span>
+          </UiTips>
+        </figcaption>
         <div class="compare-dialog__image-stage">
           <img :src="imageB.previewUrl" :alt="`待改名图片 ${imageB.name}`" :style="{ transform: `scale(${zoom})` }">
         </div>
@@ -102,10 +110,14 @@ watch(() => props.open, () => {
 }
 
 .compare-dialog figcaption {
-  overflow: hidden;
   border-bottom: 1px solid var(--color-line);
   padding: 14px 18px;
   font-size: 12px;
+}
+
+.compare-dialog figcaption :deep(.ui-tips-anchor) {
+  display: block;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
