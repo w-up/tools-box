@@ -9,7 +9,7 @@ interface Props {
   targetName: string
 }
 
-defineProps<Props>()
+const props = defineProps<Props>()
 const emit = defineEmits<{
   compare: []
   associate: [imageAId: string | null]
@@ -21,6 +21,15 @@ const confidenceLabel: Record<MatchConfidence, string> = {
   low: '需校对',
   none: '未匹配',
 }
+
+const selectedTemplateId = computed({
+  get: () => props.result.fileAId ?? '',
+  set: value => emit('associate', value || null),
+})
+const templateOptions = computed(() => [
+  { label: '不重命名，保持原名', value: '' },
+  ...props.allA.map(asset => ({ label: asset.relativePath, value: asset.id })),
+])
 </script>
 
 <template>
@@ -67,12 +76,7 @@ const confidenceLabel: Record<MatchConfidence, string> = {
 
     <label class="match-item__association">
       手动修正匹配
-      <select :value="result.fileAId ?? ''" @change="emit('associate', ($event.target as HTMLSelectElement).value || null)">
-        <option value="">不重命名，保持原名</option>
-        <option v-for="asset in allA" :key="asset.id" :value="asset.id">
-          {{ asset.name }}
-        </option>
-      </select>
+      <UiSelect v-model="selectedTemplateId" :options="templateOptions" />
     </label>
   </article>
 </template>
