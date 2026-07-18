@@ -25,6 +25,7 @@ export interface ImageAsset extends MatchableImage {
   width: number
   height: number
   size: number
+  contentHash: string
   previewUrl: string
 }
 

@@ -116,6 +116,7 @@ const createColorFeatures = (image: ImageBitmap) => {
 export const createImageFingerprint = async (file: File): Promise<{
   width: number
   height: number
+  contentHash: string
   fingerprint: ImageFingerprint
 }> => {
   const image = await createImageBitmap(file, { imageOrientation: 'from-image' })
@@ -124,10 +125,15 @@ export const createImageFingerprint = async (file: File): Promise<{
       SAMPLING_REGIONS.map(region => [region.key, createRegionHash(image, region)]),
     ) as ImageFingerprint['regions']
     const colorFeatures = createColorFeatures(image)
+    const { context } = createCanvas(image.width, image.height)
+    context.drawImage(image, 0, 0)
+    const pixels = context.getImageData(0, 0, image.width, image.height).data
+    const pixelDigest = await crypto.subtle.digest('SHA-256', pixels)
 
     return {
       width: image.width,
       height: image.height,
+      contentHash: Array.from(new Uint8Array(pixelDigest), byte => byte.toString(16).padStart(2, '0')).join(''),
       fingerprint: {
         regions,
         ...colorFeatures,
@@ -154,6 +160,7 @@ export const createImageAsset = async (
     width: analyzed.width,
     height: analyzed.height,
     size: imported.file.size,
+    contentHash: analyzed.contentHash,
     previewUrl: URL.createObjectURL(imported.file),
     fingerprint: analyzed.fingerprint,
   }

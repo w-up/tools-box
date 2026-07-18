@@ -27,6 +27,7 @@ type DroppedEntry = {
 interface Props {
   accept?: string
   disabled?: boolean
+  directory?: boolean
   title?: string
   description?: string
   draggingText?: string
@@ -36,6 +37,7 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   accept: '',
   disabled: false,
+  directory: false,
   title: '拖拽文件或文件夹至此',
   description: '或点击选择文件',
   draggingText: '松开即可导入',
@@ -171,6 +173,11 @@ watch(detailOpen, open => {
 
 onBeforeUnmount(() => {
   if (detailUrl.value) URL.revokeObjectURL(detailUrl.value)
+})
+
+// 目录入口按需启用 webkitdirectory，普通图片入口继续支持多文件选择
+onMounted(() => {
+  if (props.directory && fileInput.value) fileInput.value.setAttribute('webkitdirectory', '')
 })
 </script>
 
