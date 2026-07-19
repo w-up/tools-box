@@ -21,4 +21,9 @@ describe('图片资源迁移页面流程', () => {
     expect(migrationPage).toContain('@compare="compareResultId = result.id"')
     expect(migrationPage).not.toContain('class="migration-table"')
   })
+
+  it('人工分组缩略图固定在容器内完整显示', () => {
+    expect(migrationPage).toContain('.migration-duplicate-card__thumb img { position:absolute; inset:0; display:block; width:100%; height:100%; object-fit:contain; object-position:center; }')
+    expect(migrationPage).toContain('.migration-all-image-card__thumb img { position:absolute; inset:0; display:block; width:100%; height:100%; object-fit:contain; object-position:center; }')
+  })
 })
