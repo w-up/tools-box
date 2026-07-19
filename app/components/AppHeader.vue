@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const route = useRoute()
 const settingsOpen = ref(false)
+const searchOpen = ref(false)
 const { hydrateTheme } = useTheme()
 
 const navItems = [
@@ -10,7 +11,24 @@ const navItems = [
 
 const isActive = (to: string) => to === '/' && route.path === '/'
 
-onMounted(hydrateTheme)
+// 提供全站快捷键打开功能搜索，避免在输入框中拦截普通按键
+const handleSearchShortcut = (event: KeyboardEvent) => {
+  const target = event.target as HTMLElement | null
+  const editing = target?.matches('input, textarea, select, [contenteditable="true"]')
+  if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === 'k') {
+    event.preventDefault()
+    searchOpen.value = true
+  } else if (!editing && event.key === '/') {
+    event.preventDefault()
+    searchOpen.value = true
+  }
+}
+
+onMounted(() => {
+  hydrateTheme()
+  window.addEventListener('keydown', handleSearchShortcut)
+})
+onBeforeUnmount(() => window.removeEventListener('keydown', handleSearchShortcut))
 </script>
 
 <template>
@@ -22,6 +40,11 @@ onMounted(hydrateTheme)
       </NuxtLink>
 
       <div class="site-header__actions">
+        <button class="search-trigger" type="button" aria-label="搜索项目功能" @click="searchOpen = true">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.5 15.5 5 5" /></svg>
+          <span>搜索功能</span>
+          <kbd>⌘ K</kbd>
+        </button>
         <nav class="site-nav" aria-label="主导航">
           <NuxtLink
             v-for="item in navItems"
@@ -44,4 +67,5 @@ onMounted(hydrateTheme)
   </header>
 
   <AppSettingsPanel v-model="settingsOpen" />
+  <ToolSearchModal v-model="searchOpen" />
 </template>

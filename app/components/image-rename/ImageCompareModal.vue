@@ -139,6 +139,7 @@ watch(() => props.open, () => {
   max-width: 100%;
   max-height: 54vh;
   object-fit: contain;
+  object-position: center;
   transform-origin: center;
   transition: transform 120ms ease;
 }

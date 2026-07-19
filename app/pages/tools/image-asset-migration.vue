@@ -3,20 +3,19 @@ import JSZip from 'jszip'
 
 import type { DroppedFile } from '~/components/ui/UiFileDropzone.vue'
 import type { ImageAsset, ImportedFile, MatchResult } from '~/types/image-matching'
+import type { ManualImageMergeGroup } from '~/utils/assetMigration'
 import {
   applyDuplicateTargetNames,
   createAssetMigrationPlan,
-  createDuplicateMerges,
-  findDuplicateImageGroups,
+  createManualGroupMerges,
   formatFileSize,
-  getRetainedImageIds,
-  resolveAssetOutputPath,
+  getManualGroupRemovedImageIds,
   resolveTemplateTargetName,
   shouldUseTemplateAsset,
   rewriteAssetReferences,
 } from '~/utils/assetMigration'
 import { createImageAsset } from '~/utils/imageFingerprint'
-import { getDirectory, matchFingerprints, resolveTargetNames } from '~/utils/imageMatching'
+import { calculateFingerprintSimilarity, getDirectory, matchFingerprints, resolveTargetNames } from '~/utils/imageMatching'
 
 interface ProjectFile {
   file: File
@@ -26,7 +25,6 @@ interface ProjectFile {
 
 interface MigrationSettings {
   updateReferences: boolean
-  removeDuplicates: boolean
   useTemplateFiles: boolean
 }
 
@@ -34,7 +32,6 @@ const SETTINGS_KEY = 'web-toolbox:asset-migration-settings'
 const CODE_FILE_PATTERN = /\.(?:css|html?|json|jsx?|less|sass|scss|tsx?|vue)$/i
 const DEFAULT_SETTINGS: MigrationSettings = {
   updateReferences: true,
-  removeDuplicates: false,
   useTemplateFiles: false,
 }
 
@@ -47,9 +44,12 @@ const templateImages = ref<ImageAsset[]>([])
 const projectFiles = ref<ProjectFile[]>([])
 const projectImages = ref<ImageAsset[]>([])
 const matches = ref<MatchResult[]>([])
-const duplicateKeepImageIds = reactive<Record<string, string>>({})
 const duplicatePreviewImage = ref<ImageAsset | null>(null)
 const duplicatePreviewOpen = ref(false)
+const compareResultId = ref<string | null>(null)
+const manualGroupDraftImageIds = ref<string[]>([])
+const manualGroups = ref<ManualImageMergeGroup[]>([])
+let manualGroupSequence = 0
 const settings = reactive<MigrationSettings>({ ...DEFAULT_SETTINGS })
 const settingsOpen = ref(false)
 const exporting = ref(false)
@@ -65,23 +65,14 @@ const codeFiles = computed(() => projectFiles.value.filter(file => file.content 
 const templateById = computed(() => new Map(templateImages.value.map(image => [image.id, image])))
 const matchByProjectId = computed(() => new Map(matches.value.map(match => [match.fileBId, match])))
 const projectImageById = computed(() => new Map(projectImages.value.map(image => [image.id, image])))
-const duplicateGroups = computed(() => findDuplicateImageGroups(projectImages.value))
-const duplicateMerges = computed(() => createDuplicateMerges(
-  duplicateGroups.value,
-  duplicateKeepImageIds,
-  projectImages.value,
-))
-const discardedDuplicateImageIds = computed(() => new Set(duplicateGroups.value.flatMap(group => (
-  group.imageIds.filter(imageId => imageId !== duplicateKeepImageIds[group.id])
-))))
-const retainedProjectImages = computed(() => {
-  const retainedIds = new Set(getRetainedImageIds(
-    projectImages.value.map(image => image.id),
-    duplicateGroups.value,
-    duplicateKeepImageIds,
-  ))
-  return projectImages.value.filter(image => retainedIds.has(image.id))
-})
+const manuallyGroupedImageIds = computed(() => new Set(manualGroups.value.flatMap(group => group.imageIds)))
+const manuallyRemovedImageIds = computed(() => getManualGroupRemovedImageIds(manualGroups.value))
+const manualRemovalSet = computed(() => new Set([...manuallyRemovedImageIds.value].flatMap(imageId => {
+  const image = projectImageById.value.get(imageId)
+  return image ? [image.relativePath] : []
+})))
+const manualGroupMerges = computed(() => createManualGroupMerges(manualGroups.value, projectImages.value))
+const retainedProjectImages = computed(() => projectImages.value.filter(image => !manualRemovalSet.value.has(image.relativePath)))
 
 // 根据视觉匹配结果生成项目图片的规范目标名，并解决同目录名称冲突
 const targetNames = computed(() => {
@@ -97,7 +88,11 @@ const targetNames = computed(() => {
         : image.name,
     }
   }))
-  return applyDuplicateTargetNames(retainedTargetNames, duplicateGroups.value, duplicateKeepImageIds)
+  return applyDuplicateTargetNames(
+    retainedTargetNames,
+    manualGroups.value,
+    Object.fromEntries(manualGroups.value.map(group => [group.id, group.keepImageId])),
+  )
 })
 const sourceNames = computed(() => projectImages.value.map(image => image.relativePath))
 const renamedTargets = computed(() => new Map(projectImages.value.map(image => [
@@ -106,9 +101,10 @@ const renamedTargets = computed(() => new Map(projectImages.value.map(image => [
 ])))
 const plan = computed(() => createAssetMigrationPlan(
   sourceNames.value,
-  duplicateMerges.value,
-  settings.removeDuplicates,
+  manualGroupMerges.value,
+  false,
   renamedTargets.value,
+  manualRemovalSet.value,
 ))
 const planBySource = computed(() => new Map(plan.value.map(item => [item.sourceName, item])))
 const targetBySource = computed(() => new Map(plan.value.map(item => [item.sourceName, item.targetName])))
@@ -117,12 +113,7 @@ const duplicateTargets = computed(() => {
   for (const image of projectImages.value) {
     const item = planBySource.value.get(image.relativePath)
     if (item?.action !== 'keep') continue
-    const outputPath = resolveAssetOutputPath(
-      item,
-      renamedTargets.value.get(image.relativePath) ?? image.relativePath,
-      settings.removeDuplicates,
-      discardedDuplicateImageIds.value.has(image.id),
-    )
+    const outputPath = renamedTargets.value.get(image.relativePath) ?? image.relativePath
     const normalizedTarget = outputPath.toLocaleLowerCase()
     counts.set(normalizedTarget, (counts.get(normalizedTarget) ?? 0) + 1)
   }
@@ -131,18 +122,30 @@ const duplicateTargets = computed(() => {
 const codeChangeCount = computed(() => codeFiles.value.reduce((count, file) => (
   rewriteAssetReferences(file.content ?? '', targetBySource.value, file.relativePath) === file.content ? count : count + 1
 ), 0))
-const matchedCount = computed(() => matches.value.filter(match => match.fileAId).length)
+const matchingResults = computed(() => {
+  const retainedIds = new Set(retainedProjectImages.value.map(image => image.id))
+  return matches.value.filter(match => retainedIds.has(match.fileBId))
+})
+const matchedCount = computed(() => matchingResults.value.filter(match => match.fileAId).length)
+const unmatchedCount = computed(() => matchingResults.value.length - matchedCount.value)
+const selectedCompare = computed(() => matches.value.find(result => result.id === compareResultId.value) ?? null)
+const compareTemplateImage = computed(() => selectedCompare.value?.fileAId
+  ? templateById.value.get(selectedCompare.value.fileAId) ?? null
+  : null)
+const compareProjectImage = computed(() => selectedCompare.value
+  ? projectImageById.value.get(selectedCompare.value.fileBId) ?? null
+  : null)
 const canExport = computed(() => (
   templateImages.value.length > 0
   && projectImages.value.length > 0
   && matches.value.length === projectImages.value.length
   && duplicateTargets.value.length === 0
-  && duplicateGroups.value.every(group => duplicateKeepImageIds[group.id])
+  && manualGroups.value.every(group => group.imageIds.length > 1 && group.imageIds.includes(group.keepImageId))
 ))
 const canStartMatching = computed(() => (
   templateImages.value.length > 0
-  && projectImages.value.length > 0
-  && duplicateGroups.value.every(group => duplicateKeepImageIds[group.id])
+  && retainedProjectImages.value.length > 0
+  && manualGroups.value.every(group => group.imageIds.includes(group.keepImageId))
   && !matching.value
 ))
 
@@ -155,7 +158,10 @@ const setNotice = (message: string, type: 'info' | 'success' | 'warning' | 'erro
 const persistSettings = () => useLocalStorage.set(SETTINGS_KEY, settings)
 onMounted(() => {
   const stored = useLocalStorage.get<Partial<MigrationSettings>>(SETTINGS_KEY)
-  if (stored) Object.assign(settings, DEFAULT_SETTINGS, stored)
+  if (stored) {
+    settings.updateReferences = stored.updateReferences ?? DEFAULT_SETTINGS.updateReferences
+    settings.useTemplateFiles = stored.useTemplateFiles ?? DEFAULT_SETTINGS.useTemplateFiles
+  }
 })
 watch(settings, persistSettings, { deep: true })
 watch(() => settings.useTemplateFiles, () => {
@@ -203,9 +209,11 @@ const importTemplateImages = async (files: DroppedFile[]) => {
   setNotice(`已导入 ${templateImages.value.length} 张模板图片`, 'success')
 }
 
-// 清理上一次扫描的重复组选择，避免新目录错误复用旧图片 ID
-const resetDuplicateSelections = () => {
-  for (const groupId of Object.keys(duplicateKeepImageIds)) delete duplicateKeepImageIds[groupId]
+// 清理人工合并组和待选图片，避免重新导入项目后残留旧路径
+const resetManualRemovals = () => {
+  manualGroupDraftImageIds.value = []
+  manualGroups.value = []
+  manualGroupSequence = 0
 }
 
 // 右侧导入完整项目目录，保留多层相对路径并自动区分图片、代码和其他文件
@@ -223,22 +231,21 @@ const importProjectDirectory = async (files: DroppedFile[]) => {
   matches.value = []
   duplicatePreviewOpen.value = false
   duplicatePreviewImage.value = null
-  resetDuplicateSelections()
-  setNotice(`项目目录已导入：${projectImages.value.length} 张图片、${codeFiles.value.length} 个代码文件；识别到 ${duplicateGroups.value.length} 组重复图片`, 'success')
+  compareResultId.value = null
+  resetManualRemovals()
+  setNotice(`项目目录已导入：${projectImages.value.length} 张图片、${codeFiles.value.length} 个代码文件`, 'success')
 }
 
-// 执行模板与项目图片的一对一视觉匹配，匹配结果用于自动命名建议
+// 执行模板与保留项目图片的一对一智能匹配，并把组内结果同步给删除图片
 const startMatching = () => {
   if (!canStartMatching.value) return
   matching.value = true
   requestAnimationFrame(() => {
     const retainedMatches = matchFingerprints(templateImages.value, retainedProjectImages.value)
     const retainedMatchById = new Map(retainedMatches.map(match => [match.fileBId, match]))
-    const keepImageIdByDuplicateImageId = new Map(duplicateGroups.value.flatMap(group => (
-      group.imageIds.map(imageId => [imageId, duplicateKeepImageIds[group.id]] as const)
-    )))
     matches.value = projectImages.value.map(image => {
-      const retainedImageId = keepImageIdByDuplicateImageId.get(image.id) ?? image.id
+      const manualGroup = manualGroups.value.find(group => group.imageIds.includes(image.id))
+      const retainedImageId = manualGroup?.keepImageId || image.id
       const retainedMatch = retainedMatchById.get(retainedImageId)
       return retainedMatch ? { ...retainedMatch, id: `match-${image.id}`, fileBId: image.id } : {
         id: `match-${image.id}`,
@@ -249,14 +256,59 @@ const startMatching = () => {
       }
     })
     matching.value = false
-    setNotice(`匹配完成：${matchedCount.value} 张项目图片已匹配到模板`, 'success')
+    setNotice(`匹配完成：${matchedCount.value} 项已关联，${unmatchedCount.value} 项待校对`, 'success')
+    document.querySelector('#migration-match-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   })
+}
+
+// 手动修正保留图片与模板的匹配关系，并同步重算相似度
+const updateAssociation = (resultId: string, templateImageId: string | null) => {
+  const result = matches.value.find(item => item.id === resultId)
+  if (!result) return
+  result.fileAId = templateImageId
+  if (!templateImageId) {
+    result.similarity = 0
+    result.confidence = 'none'
+    return
+  }
+  const template = templateById.value.get(templateImageId)
+  const projectImage = projectImageById.value.get(result.fileBId)
+  if (!template || !projectImage) return
+  result.similarity = calculateFingerprintSimilarity(template.fingerprint, projectImage.fingerprint)
+  result.confidence = result.similarity >= 90 ? 'high' : result.similarity >= 80 ? 'medium' : 'low'
 }
 
 // 只通过眼睛按钮打开重复图片大图，不让缩略图本身承担点击行为
 const openDuplicatePreview = (image: ImageAsset) => {
   duplicatePreviewImage.value = image
   duplicatePreviewOpen.value = true
+}
+
+// 切换待分组图片选择，同一图片只能进入一个人工合并组
+const toggleManualGroupDraftImage = (imageId: string) => {
+  manualGroupDraftImageIds.value = manualGroupDraftImageIds.value.includes(imageId)
+    ? manualGroupDraftImageIds.value.filter(id => id !== imageId)
+    : [...manualGroupDraftImageIds.value, imageId]
+}
+
+// 将当前选择的至少两张图片创建为独立合并组，默认保留第一张
+const createManualGroup = () => {
+  if (manualGroupDraftImageIds.value.length < 2) return
+  manualGroupSequence += 1
+  const imageIds = [...manualGroupDraftImageIds.value]
+  manualGroups.value = [...manualGroups.value, {
+    id: `manual-${manualGroupSequence}`,
+    imageIds,
+    keepImageId: imageIds[0] ?? '',
+  }]
+  manualGroupDraftImageIds.value = []
+  matches.value = []
+}
+
+// 删除整个人工合并组并让组内图片恢复为可选择状态
+const removeManualGroup = (groupId: string) => {
+  manualGroups.value = manualGroups.value.filter(group => group.id !== groupId)
+  matches.value = []
 }
 
 const downloadBlob = (blob: Blob, name: string) => {
@@ -283,9 +335,8 @@ const exportMigration = async () => {
         const match = matchByProjectId.value.get(image.id)
         const template = match?.fileAId ? templateById.value.get(match.fileAId) : undefined
         const renamedPath = renamedTargets.value.get(image.relativePath) ?? image.relativePath
-        const isDiscardedDuplicate = discardedDuplicateImageIds.value.has(image.id)
-        const outputPath = resolveAssetOutputPath(item, renamedPath, settings.removeDuplicates, isDiscardedDuplicate)
-        const outputFile = template && shouldUseTemplateAsset(item, renamedPath, outputPath, settings.useTemplateFiles, isDiscardedDuplicate)
+        const outputPath = renamedPath
+        const outputFile = template && shouldUseTemplateAsset(item, renamedPath, outputPath, settings.useTemplateFiles, false)
           ? template.file
           : image.file
         zip.file(outputPath, outputFile)
@@ -301,7 +352,13 @@ const exportMigration = async () => {
       templates: templateImages.value.map(image => image.relativePath),
       matches: matches.value,
       imagePlan: plan.value,
-      duplicateGroups: duplicateGroups.value.map(group => ({ ...group, keepImageId: duplicateKeepImageIds[group.id] })),
+      manualMergeGroups: manualGroups.value.map(group => ({
+        ...group,
+        keepPath: projectImageById.value.get(group.keepImageId)?.relativePath ?? null,
+        removedPaths: group.imageIds.filter(imageId => imageId !== group.keepImageId).map(imageId => (
+          projectImageById.value.get(imageId)?.relativePath
+        )).filter(Boolean),
+      })),
       codeFiles: codeFiles.value.map(file => ({ path: file.relativePath, changed: rewriteAssetReferences(file.content ?? '', targetBySource.value, file.relativePath) !== file.content })),
     }, null, 2))
     downloadBlob(await zip.generateAsync({ type: 'blob' }), `image-migration-${Date.now()}.zip`)
@@ -322,7 +379,8 @@ const clearAll = () => {
   matches.value = []
   duplicatePreviewOpen.value = false
   duplicatePreviewImage.value = null
-  resetDuplicateSelections()
+  compareResultId.value = null
+  resetManualRemovals()
   setNotice('本次任务数据已清空，处理设置会继续保留')
 }
 </script>
@@ -358,72 +416,87 @@ const clearAll = () => {
 
       <p v-if="notice" class="migration-notice" role="status">{{ notice }}</p>
 
-      <section class="migration-panel" aria-labelledby="merge-title">
-        <div class="migration-panel__heading"><div class="migration-step">02</div><div><p>重复项整理</p><h2 id="merge-title">识别并选择保留图片</h2></div><strong v-if="duplicateGroups.length > 0" class="migration-duplicate-count">{{ duplicateGroups.length }} 组</strong></div>
-        <p class="migration-description">只展示像素内容和尺寸完全相同的图片。每组手动勾选保留一张，其余图片的代码引用会统一更新；是否从导出项目删除由处理设置控制。</p>
-        <div v-if="duplicateGroups.length > 0" class="migration-duplicate-groups">
-          <section v-for="(group, groupIndex) in duplicateGroups" :key="group.id" class="migration-duplicate-group">
-            <div class="migration-duplicate-group__heading"><strong>重复组 {{ groupIndex + 1 }}</strong><span>选择保留 1 张</span></div>
+      <section class="migration-panel" aria-labelledby="manual-review-title">
+        <div class="migration-panel__heading"><div class="migration-step">02</div><div><p>人工分组合并</p><h2 id="manual-review-title">浏览全部项目图片</h2></div><button class="migration-button migration-button--primary" type="button" :disabled="manualGroupDraftImageIds.length < 2" @click="createManualGroup">创建合并组（{{ manualGroupDraftImageIds.length }}）</button></div>
+        <p class="migration-description">先勾选至少两张业务上相同的图片并创建合并组；再在每组选择一张保留图片。同组其余图片会从导出物删除，所有旧引用统一替换为本组保留图片。</p>
+        <div v-if="projectImages.length > 0" class="migration-all-images">
+          <article v-for="image in projectImages" :key="image.id" :class="['migration-all-image-card', { 'migration-all-image-card--draft': manualGroupDraftImageIds.includes(image.id), 'migration-all-image-card--grouped': manuallyGroupedImageIds.has(image.id) }]">
+            <div class="migration-all-image-card__thumb"><img :src="image.previewUrl" alt=""><button type="button" :aria-label="`放大查看 ${image.relativePath}`" @click="openDuplicatePreview(image)"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2.5 12s3.2-5 9.5-5 9.5 5 9.5 5-3.2 5-9.5 5-9.5-5-9.5-5Z" /><circle cx="12" cy="12" r="2.5" /></svg></button><span v-if="manuallyGroupedImageIds.has(image.id)">已分组</span></div>
+            <UiTips :text="image.relativePath"><code>{{ image.relativePath }}</code></UiTips>
+            <small>{{ image.width }} × {{ image.height }} px · {{ formatFileSize(image.size) }}</small>
+            <button class="migration-button" type="button" :disabled="manuallyGroupedImageIds.has(image.id)" @click="toggleManualGroupDraftImage(image.id)">{{ manuallyGroupedImageIds.has(image.id) ? '已加入合并组' : manualGroupDraftImageIds.includes(image.id) ? '取消选择' : '选择加入组' }}</button>
+          </article>
+        </div>
+        <div v-else class="migration-empty">导入待整理项目后，这里会列出全部图片。</div>
+        <div v-if="manualGroups.length > 0" class="migration-manual-groups">
+          <section v-for="(group, groupIndex) in manualGroups" :key="group.id" class="migration-duplicate-group">
+            <div class="migration-duplicate-group__heading"><strong>人工合并组 {{ groupIndex + 1 }}</strong><span>保留 1 张，删除 {{ group.imageIds.length - 1 }} 张</span><button class="migration-button migration-button--danger" type="button" @click="removeManualGroup(group.id)">删除此组</button></div>
             <div class="migration-duplicate-grid">
-              <label
-                v-for="imageId in group.imageIds"
-                :key="imageId"
-                :class="['migration-duplicate-card', { 'migration-duplicate-card--selected': duplicateKeepImageIds[group.id] === imageId }]"
-              >
-                <input v-model="duplicateKeepImageIds[group.id]" type="radio" :name="group.id" :value="imageId" @change="matches = []">
+              <label v-for="imageId in group.imageIds" :key="imageId" :class="['migration-duplicate-card', { 'migration-duplicate-card--selected': group.keepImageId === imageId, 'migration-duplicate-card--removed': group.keepImageId !== imageId }]">
+                <input v-model="group.keepImageId" type="radio" :name="group.id" :value="imageId" @change="matches = []">
                 <div class="migration-duplicate-card__thumb"><img :src="projectImageById.get(imageId)?.previewUrl" alt=""><button type="button" :aria-label="`放大查看 ${projectImageById.get(imageId)?.relativePath}`" @click.prevent="projectImageById.get(imageId) && openDuplicatePreview(projectImageById.get(imageId)!)"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2.5 12s3.2-5 9.5-5 9.5 5 9.5 5-3.2 5-9.5 5-9.5-5-9.5-5Z" /><circle cx="12" cy="12" r="2.5" /></svg></button></div>
                 <UiTips :text="projectImageById.get(imageId)?.relativePath ?? ''"><code>{{ projectImageById.get(imageId)?.relativePath }}</code></UiTips>
                 <span>{{ projectImageById.get(imageId)?.width }} × {{ projectImageById.get(imageId)?.height }} px · {{ formatFileSize(projectImageById.get(imageId)?.size ?? 0) }}</span>
-                <strong>{{ duplicateKeepImageIds[group.id] === imageId ? '保留此图片' : '选择保留' }}</strong>
+                <strong>{{ group.keepImageId === imageId ? '保留并作为引用目标' : '将删除，引用改为保留图' }}</strong>
               </label>
             </div>
           </section>
         </div>
-        <div v-else class="migration-empty">
-          {{ projectImages.length > 0 ? '未识别到像素内容完全相同的图片。' : '导入待整理项目后自动识别重复图片。' }}
-        </div>
-        <p v-if="duplicateGroups.some(group => !duplicateKeepImageIds[group.id])" class="migration-warning">请为每个重复组选择一张保留图片后再导出。</p>
       </section>
 
-      <UiModal v-model="duplicatePreviewOpen" :title="duplicatePreviewImage?.relativePath" description="重复图片详情" width="960px">
+      <UiModal v-model="duplicatePreviewOpen" :title="duplicatePreviewImage?.relativePath" description="项目图片详情" width="960px">
         <div v-if="duplicatePreviewImage" class="migration-image-detail">
           <div class="migration-image-detail__stage"><img :src="duplicatePreviewImage.previewUrl" :alt="duplicatePreviewImage.relativePath"></div>
           <dl><div><dt>图片宽高</dt><dd>{{ duplicatePreviewImage.width }} × {{ duplicatePreviewImage.height }} px</dd></div><div><dt>文件大小</dt><dd>{{ formatFileSize(duplicatePreviewImage.size) }}</dd></div><div><dt>文件路径</dt><dd><UiTips :text="duplicatePreviewImage.relativePath"><code>{{ duplicatePreviewImage.relativePath }}</code></UiTips></dd></div></dl>
         </div>
       </UiModal>
 
-      <section class="migration-panel" aria-labelledby="match-title">
-        <div class="migration-panel__heading"><div class="migration-step">03</div><div><p>模板匹配</p><h2 id="match-title">生成规范命名建议</h2></div><button class="migration-button migration-button--primary" type="button" :disabled="!canStartMatching" @click="startMatching">{{ matching ? '正在匹配…' : '开始匹配模板' }}</button></div>
-        <p v-if="duplicateGroups.some(group => !duplicateKeepImageIds[group.id])" class="migration-warning">先在第 02 步为每个重复组选择保留图片，再开始模板匹配。</p>
-        <div v-if="projectImages.length > 0" class="migration-table-wrap">
-          <table class="migration-table"><thead><tr><th>项目图片路径</th><th>匹配模板</th><th>相似度</th><th>最终文件名</th></tr></thead><tbody>
-            <tr v-for="image in projectImages" :key="image.id">
-              <td><UiTips :text="image.relativePath"><code>{{ image.relativePath }}</code></UiTips></td>
-              <td><UiTips :text="matchByProjectId.get(image.id)?.fileAId ? templateById.get(matchByProjectId.get(image.id)?.fileAId ?? '')?.relativePath ?? '—' : '未匹配'"><code>{{ matchByProjectId.get(image.id)?.fileAId ? templateById.get(matchByProjectId.get(image.id)?.fileAId ?? '')?.name : '未匹配' }}</code></UiTips></td>
-              <td>{{ matchByProjectId.get(image.id)?.fileAId ? `${matchByProjectId.get(image.id)?.similarity}%` : '—' }}</td>
-              <td><code>{{ targetNames.get(image.id) ?? image.name }}</code></td>
-            </tr>
-          </tbody></table>
+      <section id="migration-match-results" class="migration-panel migration-match-results" aria-labelledby="match-title">
+        <div class="migration-panel__heading"><div class="migration-step">03</div><div><p>智能模板匹配</p><h2 id="match-title">匹配、校对与命名</h2></div><button class="migration-button migration-button--primary" type="button" :disabled="!canStartMatching" @click="startMatching">{{ matching ? '正在匹配…' : '开始智能匹配' }}</button></div>
+        <p class="migration-description">沿用“智能图片对比改名”的匹配方式与校对卡片。只匹配每个人工组的保留图片，删除图片自动继承本组保留图的模板名称和最终路径。</p>
+        <div v-if="matchingResults.length > 0" class="migration-match-counts"><span><strong>{{ matchedCount }}</strong> 已匹配</span><span><strong>{{ unmatchedCount }}</strong> 待校对</span></div>
+        <div v-if="matchingResults.length > 0" class="migration-match-grid">
+          <ImageRenameMatchResultItem
+            v-for="result in matchingResults"
+            :key="result.id"
+            :result="result"
+            :image-a="result.fileAId ? templateById.get(result.fileAId) ?? null : null"
+            :image-b="projectImageById.get(result.fileBId)!"
+            :all-a="templateImages"
+            :target-name="targetNames.get(result.fileBId) ?? projectImageById.get(result.fileBId)?.name ?? ''"
+            @compare="compareResultId = result.id"
+            @associate="updateAssociation(result.id, $event)"
+          />
         </div>
-        <div v-else class="migration-empty">先导入模板图片和待整理项目目录。</div>
-        <p v-if="duplicateTargets.length > 0" class="migration-warning">最终文件名冲突：{{ duplicateTargets.join('、') }}。请调整匹配或重复图片保留选择。</p>
+        <div v-else class="migration-empty">导入模板图片和项目目录，并完成人工分组后开始智能匹配。</div>
+        <p v-if="duplicateTargets.length > 0" class="migration-warning">最终文件名冲突：{{ duplicateTargets.join('、') }}。请调整模板匹配或人工合并组的保留图片。</p>
       </section>
+
+      <ImageRenameImageCompareModal
+        :open="Boolean(compareResultId)"
+        :image-a="compareTemplateImage"
+        :image-b="compareProjectImage"
+        :similarity="selectedCompare?.similarity ?? 0"
+        @close="compareResultId = null"
+      />
 
       <section class="migration-panel migration-export" aria-labelledby="export-title">
         <div class="migration-panel__heading"><div class="migration-step">04</div><div><p>检查与导出</p><h2 id="export-title">导出规范化项目副本</h2></div></div>
-        <div class="migration-summary"><span><strong>{{ templateImages.length }}</strong> 模板图片</span><span><strong>{{ projectImages.length }}</strong> 项目图片</span><span><strong>{{ matchedCount }}</strong> 已匹配</span><span><strong>{{ codeFiles.length }}</strong> 代码文件</span><span><strong>{{ codeChangeCount }}</strong> 将更新的代码文件</span></div>
+        <div class="migration-summary"><span><strong>{{ templateImages.length }}</strong> 模板图片</span><span><strong>{{ projectImages.length }}</strong> 项目图片</span><span><strong>{{ manualGroups.length }}</strong> 人工合并组</span><span><strong>{{ manuallyRemovedImageIds.size }}</strong> 将删除</span><span><strong>{{ matchedCount }}</strong> 已匹配</span><span><strong>{{ codeFiles.length }}</strong> 代码文件</span><span><strong>{{ codeChangeCount }}</strong> 将更新的代码文件</span></div>
         <p>导出包保留项目原目录结构：图片在原目录改名，HTML/CSS/JS 等代码中的旧图片引用同步更新，其他文件原样保留。</p>
         <div class="migration-export__actions"><button class="migration-button migration-button--primary" type="button" :disabled="!canExport || exporting" @click="exportMigration">{{ exporting ? '正在打包…' : '导出项目 ZIP' }}</button><button class="migration-button" type="button" :disabled="projectFiles.length === 0 && templateImages.length === 0" @click="clearAll">清空本次数据</button></div>
       </section>
     </main>
 
-    <UiModal v-model="settingsOpen" width="620px"><template #header><div class="migration-settings-heading"><span>PROCESS SETTINGS</span><h2>处理设置</h2><p>设置会保存到当前浏览器；导入文件和匹配任务不会保存。</p></div></template><div class="migration-settings"><label><input v-model="settings.updateReferences" type="checkbox"> <span><strong>同步代码引用</strong><small>导出更新后的代码副本，不改写原始项目文件。</small></span></label><label><input v-model="settings.removeDuplicates" type="checkbox"> <span><strong>去除确认重复图片</strong><small>只移除每组中未被选为保留项的图片；原始项目不受影响。</small></span></label><label><input v-model="settings.useTemplateFiles" type="checkbox"> <span><strong>使用模板文件替换</strong><small>需手动勾选。匹配成功后直接输出模板图片文件，并使用模板文件扩展名；关闭时只沿用模板名称。</small></span></label></div><template #footer="{ close }"><span class="migration-settings-footer">刷新页面后仍会保留这些设置</span><button class="migration-button migration-button--primary" type="button" @click="close">完成</button></template></UiModal>
+    <UiModal v-model="settingsOpen" width="620px"><template #header><div class="migration-settings-heading"><span>PROCESS SETTINGS</span><h2>处理设置</h2><p>设置会保存到当前浏览器；导入文件和匹配任务不会保存。</p></div></template><div class="migration-settings"><label><input v-model="settings.updateReferences" type="checkbox"> <span><strong>同步代码引用</strong><small>导出更新后的代码副本，不改写原始项目文件。</small></span></label><label><input v-model="settings.useTemplateFiles" type="checkbox"> <span><strong>使用模板文件替换</strong><small>需手动勾选。匹配成功后直接输出模板图片文件，并使用模板文件扩展名；关闭时只沿用模板名称。</small></span></label></div><template #footer="{ close }"><span class="migration-settings-footer">刷新页面后仍会保留这些设置</span><button class="migration-button migration-button--primary" type="button" @click="close">完成</button></template></UiModal>
   </div>
 </template>
 
 <style scoped>
 .migration-workbench { min-height:calc(100svh - 72px); color:var(--color-text); background:var(--color-bg); }.migration-header,.migration-shell { width:min(100% - 48px,1180px); margin-inline:auto; }.migration-header { display:flex; min-height:220px; align-items:flex-end; justify-content:space-between; gap:48px; padding-block:42px 44px; }.migration-header__back { display:inline-flex; min-height:44px; align-items:center; color:var(--color-muted); font-size:12px; }.migration-header p,.migration-panel__heading p { color:var(--color-accent); font-size:10px; font-weight:700; letter-spacing:.1em; }.migration-header > div > p { margin-top:24px; }.migration-header h1 { margin:8px 0 0; font-size:clamp(38px,4.5vw,58px); font-weight:590; letter-spacing:-.055em; line-height:1; }.migration-header > div > span { display:block; margin-top:16px; color:var(--color-muted); font-size:14px; }.migration-header__privacy { display:grid; min-width:310px; grid-template-columns:10px 1fr; gap:4px 10px; border:1px solid var(--color-line); border-radius:10px; padding:16px 18px; background:var(--color-surface); }.migration-header__privacy i { width:8px; height:8px; margin-top:4px; border-radius:50%; background:var(--color-accent); box-shadow:0 0 0 4px var(--color-accent-soft); }.migration-header__privacy strong { font-size:12px; }.migration-header__privacy span { grid-column:2; margin:0; font-size:10px; }.migration-shell { padding-bottom:90px; }.migration-panel { margin-top:14px; border:1px solid var(--color-line); border-radius:16px; padding:26px; background:var(--color-surface-elevated); box-shadow:0 1px 3px rgb(15 23 42 / 4%); }.migration-panel:first-child { margin-top:0; }.migration-panel__heading { display:grid; grid-template-columns:40px 1fr auto; align-items:center; gap:14px; margin-bottom:20px; }.migration-panel__heading h2 { margin:4px 0 0; font-size:20px; font-weight:590; letter-spacing:-.025em; }.migration-step { display:grid; width:40px; height:40px; place-items:center; border-radius:10px; color:var(--color-accent); background:var(--color-accent-soft); font-size:11px; font-weight:700; }.migration-imports { display:grid; grid-template-columns:1fr 1fr; gap:14px; }.migration-import-card { display:flex; min-width:0; flex-direction:column; gap:10px; }.migration-import-card strong { font-size:14px; }.migration-import-card small { color:var(--color-muted); font-size:10px; }.migration-button { min-height:42px; border:1px solid var(--color-line); border-radius:8px; padding-inline:14px; color:var(--color-text); background:var(--color-surface); cursor:pointer; font-size:11px; font-weight:650; }.migration-button:hover:not(:disabled) { border-color:var(--color-accent); }.migration-button:disabled { color:var(--color-muted); cursor:not-allowed; }.migration-button--primary { color:var(--color-accent-text); border-color:var(--color-accent); background:var(--color-accent); }.migration-button--danger { color:#a24425; }.migration-notice,.migration-warning { margin:14px 0 0; border:1px solid var(--color-line); border-radius:9px; padding:11px 14px; color:var(--color-accent); background:var(--color-accent-soft); font-size:11px; }.migration-warning { color:#a24425; background:#ffebe3; }.migration-table-wrap { overflow-x:auto; border:1px solid var(--color-line); border-radius:10px; }.migration-table { width:100%; min-width:720px; border-collapse:collapse; font-size:11px; }.migration-table th,.migration-table td { border-bottom:1px solid var(--color-line); padding:12px 14px; text-align:left; }.migration-table th { color:var(--color-muted); background:var(--color-bg); font-size:10px; }.migration-table tr:last-child td { border:0; }.migration-table code,.migration-export code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }.migration-table code { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.migration-description,.migration-export > p { color:var(--color-muted); font-size:11px; line-height:1.65; }.migration-merge-list { display:grid; gap:10px; margin-top:16px; }.migration-merge-row { display:grid; grid-template-columns:1fr 24px 1fr auto; align-items:center; gap:12px; border:1px solid var(--color-line); border-radius:10px; padding:14px; background:var(--color-bg); }.migration-merge-row label { display:flex; flex-direction:column; gap:7px; color:var(--color-muted); font-size:10px; }.migration-merge-arrow { color:var(--color-accent); font-size:18px; text-align:center; }.migration-empty { border:1px dashed var(--color-line); border-radius:10px; padding:18px; color:var(--color-muted); background:var(--color-bg); font-size:11px; }.migration-summary { display:flex; flex-wrap:wrap; gap:8px; }.migration-summary span { border:1px solid var(--color-line); border-radius:8px; padding:8px 10px; color:var(--color-muted); background:var(--color-surface); font-size:10px; }.migration-summary strong { margin-right:4px; color:var(--color-text); font-size:13px; }.migration-export > p { margin-top:16px; }.migration-export__actions { display:flex; gap:8px; margin-top:16px; }.migration-settings-heading span { color:var(--color-accent); font-size:10px; font-weight:700; letter-spacing:.16em; }.migration-settings-heading h2 { margin:4px 0 0; font-size:24px; }.migration-settings-heading p,.migration-settings-footer { color:var(--color-muted); font-size:11px; }.migration-settings { display:grid; gap:10px; }.migration-settings label { display:flex; gap:12px; align-items:flex-start; border:1px solid var(--color-line); border-radius:10px; padding:15px; cursor:pointer; }.migration-settings input { width:18px; height:18px; accent-color:var(--color-accent); }.migration-settings strong,.migration-settings small { display:block; }.migration-settings strong { font-size:13px; }.migration-settings small { margin-top:4px; color:var(--color-muted); font-size:11px; line-height:1.5; }
 .migration-duplicate-count { color:var(--color-accent); font-size:13px; }.migration-duplicate-groups { display:grid; gap:14px; margin-top:18px; }.migration-duplicate-group { border:1px solid var(--color-line); border-radius:12px; padding:16px; background:var(--color-bg); }.migration-duplicate-group__heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:12px; }.migration-duplicate-group__heading strong { font-size:13px; }.migration-duplicate-group__heading span { color:var(--color-muted); font-size:11px; }.migration-duplicate-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:10px; }.migration-duplicate-card { position:relative; display:grid; min-width:0; gap:8px; border:1px solid var(--color-line); border-radius:10px; padding:10px; background:var(--color-surface); cursor:pointer; transition:border-color 160ms ease,box-shadow 160ms ease,transform 160ms ease; }.migration-duplicate-card:hover { border-color:var(--color-accent); transform:translateY(-1px); }.migration-duplicate-card--selected { border-color:var(--color-accent); box-shadow:0 0 0 3px var(--color-accent-soft); }.migration-duplicate-card > input { position:absolute; z-index:2; top:10px; left:10px; width:22px; height:22px; margin:0; accent-color:var(--color-accent); cursor:pointer; }.migration-duplicate-card__thumb { position:relative; display:grid; height:126px; place-items:center; overflow:hidden; border-radius:7px; background-color:var(--color-bg); background-image:linear-gradient(45deg,var(--color-line) 25%,transparent 25%),linear-gradient(-45deg,var(--color-line) 25%,transparent 25%),linear-gradient(45deg,transparent 75%,var(--color-line) 75%),linear-gradient(-45deg,transparent 75%,var(--color-line) 75%); background-position:0 0,0 8px,8px -8px,-8px 0; background-size:16px 16px; }.migration-duplicate-card__thumb img { width:100%; height:100%; object-fit:contain; }.migration-duplicate-card__thumb button { position:absolute; z-index:3; right:7px; bottom:7px; display:grid; width:34px; height:34px; place-items:center; border:1px solid var(--color-line); border-radius:8px; color:var(--color-text); background:var(--color-surface-elevated); box-shadow:0 3px 10px rgb(8 10 14 / 14%); cursor:pointer; }.migration-duplicate-card__thumb button:hover { color:var(--color-accent); border-color:var(--color-accent); }.migration-duplicate-card__thumb svg { width:18px; height:18px; stroke:currentColor; stroke-linecap:round; stroke-linejoin:round; stroke-width:1.8; }.migration-duplicate-card code { display:block; overflow:hidden; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }.migration-duplicate-card :deep(.ui-tips-anchor) { min-width:0; }.migration-duplicate-card > span { color:var(--color-muted); font-size:10px; }.migration-duplicate-card > strong { color:var(--color-accent); font-size:11px; }.migration-image-detail__stage { display:grid; min-height:360px; max-height:62vh; place-items:center; overflow:auto; padding:24px; background-color:var(--color-bg); background-image:linear-gradient(45deg,var(--color-line) 25%,transparent 25%),linear-gradient(-45deg,var(--color-line) 25%,transparent 25%),linear-gradient(45deg,transparent 75%,var(--color-line) 75%),linear-gradient(-45deg,transparent 75%,var(--color-line) 75%); background-position:0 0,0 8px,8px -8px,-8px 0; background-size:16px 16px; }.migration-image-detail__stage img { display:block; max-width:100%; max-height:56vh; object-fit:contain; }.migration-image-detail dl { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1px; margin:0; background:var(--color-line); }.migration-image-detail dl > div { min-width:0; padding:14px 18px; background:var(--color-surface); }.migration-image-detail dt { color:var(--color-muted); font-size:10px; }.migration-image-detail dd { min-width:0; margin:5px 0 0; font-size:12px; }.migration-image-detail dd code { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.migration-image-detail dd :deep(.ui-tips-anchor) { min-width:0; }.migration-settings label:has(input:disabled) { opacity:.5; }
-@media (max-width:1024px) { .migration-header { align-items:flex-start; flex-direction:column; gap:24px; }.migration-header__privacy { width:100%; min-width:0; }.migration-imports { grid-template-columns:1fr; }.migration-duplicate-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }.migration-table :deep(.ui-tips-anchor) { display:block; max-width:260px; }
-@media (max-width:640px) { .migration-header,.migration-shell { width:calc(100% - 28px); }.migration-header { min-height:0; padding-block:28px 30px; }.migration-header h1 { font-size:36px; }.migration-panel { border-radius:12px; padding:16px; }.migration-panel__heading { grid-template-columns:36px 1fr; }.migration-panel__heading > .migration-button,.migration-panel__heading > .migration-duplicate-count { grid-column:2; justify-self:start; }.migration-step { width:36px; height:36px; }.migration-duplicate-grid,.migration-image-detail dl { grid-template-columns:1fr; }.migration-duplicate-card__thumb { height:150px; }.migration-image-detail__stage { min-height:260px; padding:14px; }.migration-export__actions { flex-direction:column; }.migration-export__actions .migration-button { width:100%; min-height:46px; } }
+.migration-all-images { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:10px; margin-top:18px; }.migration-all-image-card { display:grid; min-width:0; align-content:start; gap:8px; border:1px solid var(--color-line); border-radius:10px; padding:10px; background:var(--color-bg); }.migration-all-image-card--draft { border-color:var(--color-accent); box-shadow:0 0 0 3px var(--color-accent-soft); }.migration-all-image-card--grouped { opacity:.62; }.migration-all-image-card__thumb { position:relative; display:grid; height:126px; place-items:center; overflow:hidden; border-radius:7px; background-color:var(--color-surface); background-image:linear-gradient(45deg,var(--color-line) 25%,transparent 25%),linear-gradient(-45deg,var(--color-line) 25%,transparent 25%),linear-gradient(45deg,transparent 75%,var(--color-line) 75%),linear-gradient(-45deg,transparent 75%,var(--color-line) 75%); background-position:0 0,0 8px,8px -8px,-8px 0; background-size:16px 16px; }.migration-all-image-card__thumb img { width:100%; height:100%; object-fit:contain; }.migration-all-image-card__thumb button { position:absolute; right:7px; bottom:7px; display:grid; width:34px; height:34px; place-items:center; border:1px solid var(--color-line); border-radius:8px; color:var(--color-text); background:var(--color-surface-elevated); cursor:pointer; }.migration-all-image-card__thumb button:hover { color:var(--color-accent); border-color:var(--color-accent); }.migration-all-image-card__thumb button svg { width:18px; height:18px; stroke:currentColor; stroke-linecap:round; stroke-linejoin:round; stroke-width:1.8; }.migration-all-image-card__thumb > span { position:absolute; top:7px; left:7px; border-radius:999px; padding:5px 8px; color:var(--color-accent); background:var(--color-accent-soft); font-size:9px; font-weight:700; }.migration-all-image-card code { display:block; overflow:hidden; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }.migration-all-image-card :deep(.ui-tips-anchor) { min-width:0; }.migration-all-image-card > small { color:var(--color-muted); font-size:10px; }.migration-all-image-card > .migration-button { width:100%; margin-top:auto; }.migration-manual-groups { display:grid; gap:14px; margin-top:20px; }.migration-manual-groups .migration-duplicate-group__heading { display:grid; grid-template-columns:1fr auto auto; }.migration-duplicate-card--removed { border-color:#d69a87; background:color-mix(in srgb,#ffebe3 60%,var(--color-surface)); }.migration-duplicate-card--removed > strong { color:#a24425; }
+.migration-match-counts { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }.migration-match-counts span { border:1px solid var(--color-line); border-radius:999px; padding:7px 10px; color:var(--color-muted); background:var(--color-bg); font-size:10px; }.migration-match-counts strong { margin-right:4px; color:var(--color-text); }.migration-match-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin-top:14px; }
+@media (max-width:1024px) { .migration-header { align-items:flex-start; flex-direction:column; gap:24px; }.migration-header__privacy { width:100%; min-width:0; }.migration-imports,.migration-match-grid { grid-template-columns:1fr; }.migration-duplicate-grid,.migration-all-images { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:640px) { .migration-header,.migration-shell { width:calc(100% - 28px); }.migration-header { min-height:0; padding-block:28px 30px; }.migration-header h1 { font-size:36px; }.migration-panel { border-radius:12px; padding:16px; }.migration-panel__heading { grid-template-columns:36px 1fr; }.migration-panel__heading > .migration-button,.migration-panel__heading > .migration-duplicate-count { grid-column:2; justify-self:start; }.migration-step { width:36px; height:36px; }.migration-duplicate-grid,.migration-all-images,.migration-image-detail dl { grid-template-columns:1fr; }.migration-duplicate-card__thumb,.migration-all-image-card__thumb { height:150px; }.migration-image-detail__stage { min-height:260px; padding:14px; }.migration-export__actions { flex-direction:column; }.migration-export__actions .migration-button { width:100%; min-height:46px; } }
 </style>

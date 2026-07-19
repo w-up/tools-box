@@ -28,7 +28,7 @@ const selectedTemplateId = computed({
 })
 const templateOptions = computed(() => [
   { label: '不重命名，保持原名', value: '' },
-  ...props.allA.map(asset => ({ label: asset.relativePath, value: asset.id })),
+  ...props.allA.map(asset => ({ label: asset.relativePath, value: asset.id, imageUrl: asset.previewUrl })),
 ])
 </script>
 
@@ -180,6 +180,7 @@ const templateOptions = computed(() => [
   width: 100%;
   height: 100%;
   object-fit: contain;
+  object-position: center;
 }
 
 .match-item__image-stage p {

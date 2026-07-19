@@ -28,17 +28,13 @@ export const shouldUseTemplateAsset = (
   isDiscardedDuplicate = false,
 ) => useTemplateFiles && !isDiscardedDuplicate && item.targetName === renamedPath && outputPath === renamedPath
 
-export interface DuplicateImageCandidate {
-  id: string
-  relativePath: string
-  contentHash: string
-  width: number
-  height: number
-}
-
 export interface DuplicateImageGroup {
   id: string
   imageIds: string[]
+}
+
+export interface ManualImageMergeGroup extends DuplicateImageGroup {
+  keepImageId: string
 }
 
 export interface NamedImageCandidate {
@@ -46,33 +42,6 @@ export interface NamedImageCandidate {
   relativePath: string
 }
 
-// 按像素内容哈希和原始尺寸识别可安全人工确认的重复图片组
-export const findDuplicateImageGroups = (images: DuplicateImageCandidate[]): DuplicateImageGroup[] => {
-  const groups = new Map<string, DuplicateImageCandidate[]>()
-  for (const image of images) {
-    const key = `${image.contentHash}-${image.width}x${image.height}`
-    const group = groups.get(key) ?? []
-    group.push(image)
-    groups.set(key, group)
-  }
-
-  return [...groups.entries()]
-    .filter(([, group]) => group.length > 1)
-    .map(([key, group]) => ({
-      id: `duplicate-${key}`,
-      imageIds: group.map(image => image.id),
-    }))
-}
-
-// 从重复组选择中取得进入模板匹配的图片，未重复图片始终保留
-export const getRetainedImageIds = (
-  imageIds: string[],
-  groups: DuplicateImageGroup[],
-  keepImageIds: Record<string, string>,
-) => {
-  const discarded = new Set(groups.flatMap(group => group.imageIds.filter(imageId => imageId !== keepImageIds[group.id])))
-  return imageIds.filter(imageId => !discarded.has(imageId))
-}
 
 // 将保留图片的已解析目标名同步给同组其余图片，避免重复项参与名称冲突编号
 export const applyDuplicateTargetNames = (
@@ -90,26 +59,31 @@ export const applyDuplicateTargetNames = (
   return resolved
 }
 
-// 将重复组中的保留选择转换为现有迁移计划可消费的合并规则
-export const createDuplicateMerges = (
-  groups: DuplicateImageGroup[],
-  keepImageIds: Record<string, string>,
+
+// 将多个独立人工分组转换为组内“删除图片 → 保留图片”的合并规则
+export const createManualGroupMerges = (
+  groups: ManualImageMergeGroup[],
   images: NamedImageCandidate[],
 ): ManualAssetMerge[] => {
   const imageById = new Map(images.map(image => [image.id, image]))
   return groups.flatMap(group => {
-    const keepImageId = keepImageIds[group.id]
-    const target = keepImageId ? imageById.get(keepImageId) : undefined
-    if (!target) return []
+    if (!group.imageIds.includes(group.keepImageId)) return []
+    const targetName = imageById.get(group.keepImageId)?.relativePath
+    if (!targetName) return []
     return [{
       sourceNames: group.imageIds
-        .filter(imageId => imageId !== keepImageId)
+        .filter(imageId => imageId !== group.keepImageId)
         .map(imageId => imageById.get(imageId)?.relativePath)
         .filter((relativePath): relativePath is string => Boolean(relativePath)),
-      targetName: target.relativePath,
+      targetName,
     }]
   })
 }
+
+// 取得每个人工组中除保留图片外需要从导出物删除的图片 ID
+export const getManualGroupRemovedImageIds = (groups: ManualImageMergeGroup[]) => new Set(
+  groups.flatMap(group => group.imageIds.filter(imageId => imageId !== group.keepImageId)),
+)
 
 // 以 B、KB、MB 为图片详情生成紧凑的文件大小文本
 export const formatFileSize = (size: number) => {
@@ -143,6 +117,7 @@ export const createAssetMigrationPlan = (
   merges: ManualAssetMerge[],
   removeDuplicates: boolean,
   renamedTargets = new Map<string, string>(),
+  manualRemovals = new Set<string>(),
 ): AssetMigrationPlanItem[] => {
   const targetBySource = new Map<string, string>()
   for (const merge of merges) {
@@ -157,7 +132,7 @@ export const createAssetMigrationPlan = (
     return {
       sourceName,
       targetName,
-      action: removeDuplicates && mergeTarget ? 'remove' : 'keep',
+      action: manualRemovals.has(sourceName) || (removeDuplicates && mergeTarget) ? 'remove' : 'keep',
     }
   })
 }

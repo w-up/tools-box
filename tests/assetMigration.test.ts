@@ -3,62 +3,16 @@ import { describe, expect, it } from 'vitest'
 import {
   applyDuplicateTargetNames,
   createAssetMigrationPlan,
-  createDuplicateMerges,
-  findDuplicateImageGroups,
+  createManualGroupMerges,
   formatFileSize,
-  getRetainedImageIds,
+  getManualGroupRemovedImageIds,
   resolveAssetOutputPath,
   shouldUseTemplateAsset,
   resolveTemplateTargetName,
   rewriteAssetReferences,
 } from '../app/utils/assetMigration'
 
-const duplicateImage = (id: string, relativePath: string, contentHash: string, width = 100, height = 80) => ({
-  id,
-  relativePath,
-  contentHash,
-  width,
-  height,
-})
-
-describe('findDuplicateImageGroups', () => {
-  it('只把像素内容与尺寸都相同的项目图片识别为重复组', () => {
-    const groups = findDuplicateImageGroups([
-      duplicateImage('a', 'project/img/a.png', 'same'),
-      duplicateImage('b', 'project/img/b.webp', 'same'),
-      duplicateImage('c', 'project/img/c.png', 'different'),
-      duplicateImage('d', 'project/mobile/a.png', 'same', 200, 160),
-    ])
-
-    expect(groups).toEqual([{
-      id: 'duplicate-same-100x80',
-      imageIds: ['a', 'b'],
-    }])
-  })
-
-  it('选择保留图片后，把同组其余图片转换为引用合并规则', () => {
-    expect(createDuplicateMerges(
-      [{ id: 'duplicate-same-100x80', imageIds: ['a', 'b', 'c'] }],
-      { 'duplicate-same-100x80': 'b' },
-      [
-        { id: 'a', relativePath: 'project/pc/a.png' },
-        { id: 'b', relativePath: 'project/pc/keep.png' },
-        { id: 'c', relativePath: 'project/mobile/c.png' },
-      ],
-    )).toEqual([{
-      sourceNames: ['project/pc/a.png', 'project/mobile/c.png'],
-      targetName: 'project/pc/keep.png',
-    }])
-  })
-
-  it('只把每个重复组选择保留的图片送入后续模板匹配', () => {
-    expect(getRetainedImageIds(
-      ['a', 'b', 'c', 'd'],
-      [{ id: 'group-1', imageIds: ['a', 'b'] }, { id: 'group-2', imageIds: ['c', 'd'] }],
-      { 'group-1': 'b', 'group-2': 'c' },
-    )).toEqual(['b', 'c'])
-  })
-
+describe('applyDuplicateTargetNames', () => {
   it('把保留图片的最终名称同步给同组图片，不让已排除项占用编号', () => {
     expect(applyDuplicateTargetNames(
       new Map([['b', 'hero.png'], ['c', 'unique.png']]),
@@ -75,6 +29,64 @@ describe('formatFileSize', () => {
     expect(formatFileSize(2 * 1024 * 1024)).toBe('2 MB')
   })
 })
+
+describe('手动合并组', () => {
+  const groups = [
+    { id: 'manual-1', imageIds: ['a', 'b', 'c'], keepImageId: 'a' },
+    { id: 'manual-2', imageIds: ['d', 'e'], keepImageId: 'e' },
+  ]
+  const images = [
+    { id: 'a', relativePath: 'project/img/a.png' },
+    { id: 'b', relativePath: 'project/img/b.png' },
+    { id: 'c', relativePath: 'project/img/c.png' },
+    { id: 'd', relativePath: 'project/img/d.png' },
+    { id: 'e', relativePath: 'project/img/e.png' },
+  ]
+
+  it('两组分别将组内删除图片映射到各自保留图片，不会串组', () => {
+    expect(createManualGroupMerges(groups, images)).toEqual([
+      { sourceNames: ['project/img/b.png', 'project/img/c.png'], targetName: 'project/img/a.png' },
+      { sourceNames: ['project/img/d.png'], targetName: 'project/img/e.png' },
+    ])
+  })
+
+  it('取得两组中除保留图片外的全部真实删除项', () => {
+    expect(getManualGroupRemovedImageIds(groups)).toEqual(new Set(['b', 'c', 'd']))
+  })
+
+  it('两组删除图片在迁移计划和代码引用中分别指向各自保留图片', () => {
+    const merges = createManualGroupMerges(groups, images)
+    const removedPaths = new Set([...getManualGroupRemovedImageIds(groups)].map(imageId => (
+      images.find(image => image.id === imageId)?.relativePath ?? ''
+    )))
+    const plan = createAssetMigrationPlan(
+      images.map(image => image.relativePath),
+      merges,
+      false,
+      new Map(),
+      removedPaths,
+    )
+    const replacements = new Map(plan.map(item => [item.sourceName, item.targetName]))
+
+    expect(plan.filter(item => item.action === 'remove')).toEqual([
+      { sourceName: 'project/img/b.png', targetName: 'project/img/a.png', action: 'remove' },
+      { sourceName: 'project/img/c.png', targetName: 'project/img/a.png', action: 'remove' },
+      { sourceName: 'project/img/d.png', targetName: 'project/img/e.png', action: 'remove' },
+    ])
+    expect(rewriteAssetReferences(
+      '<img src="./img/b.png"><img src="./img/c.png"><img src="./img/d.png">',
+      replacements,
+      'project/index.html',
+    )).toBe('<img src="./img/a.png"><img src="./img/a.png"><img src="./img/e.png">')
+  })
+
+  it('组内未选择有效保留图片时不生成不安全的合并规则', () => {
+    expect(createManualGroupMerges([
+      { id: 'manual-1', imageIds: ['a', 'b'], keepImageId: '' },
+    ], images)).toEqual([])
+  })
+})
+
 
 describe('resolveTemplateTargetName', () => {
   it('手动启用模板文件替换时使用模板文件完整名称和真实扩展名', () => {
@@ -189,6 +201,19 @@ describe('createAssetMigrationPlan', () => {
     expect(plan).toEqual([
       { sourceName: 'image-1.png', targetName: 'hero.png', action: 'remove' },
       { sourceName: 'image-3.png', targetName: 'hero.png', action: 'keep' },
+    ])
+  })
+
+  it('无替换目标的手动删除图片仍从导出物移除，但不生成错误引用映射', () => {
+    expect(createAssetMigrationPlan(
+      ['project/img/orphan.png', 'project/img/keep.png'],
+      [],
+      true,
+      new Map(),
+      new Set(['project/img/orphan.png']),
+    )).toEqual([
+      { sourceName: 'project/img/orphan.png', targetName: 'project/img/orphan.png', action: 'remove' },
+      { sourceName: 'project/img/keep.png', targetName: 'project/img/keep.png', action: 'keep' },
     ])
   })
 })

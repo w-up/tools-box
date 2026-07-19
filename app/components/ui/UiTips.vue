@@ -165,7 +165,7 @@ onBeforeUnmount(() => {
 
 .ui-tips-panel {
   position: fixed;
-  z-index: 220;
+  z-index: 320;
   box-sizing: border-box;
   color: var(--color-text);
   border: 1px solid var(--color-line);
