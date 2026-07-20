@@ -5,6 +5,12 @@ import { resolve } from 'node:path'
 const migrationPage = readFileSync(resolve(process.cwd(), 'app/pages/tools/image-asset-migration.vue'), 'utf8')
 
 describe('图片资源迁移页面流程', () => {
+  it('直接展示操作面板，不显示页面标题介绍区', () => {
+    expect(migrationPage).not.toContain('class="migration-header"')
+    expect(migrationPage).not.toContain('图片工具 · 本地迁移')
+    expect(migrationPage).not.toContain('比对、替换和导出全部在当前浏览器完成')
+  })
+
   it('只保留人工分组合并，不再显示或执行自动视觉重复识别', () => {
     expect(migrationPage).not.toContain('findDuplicateImageGroups')
     expect(migrationPage).not.toContain('duplicateGroups')
