@@ -1,6 +1,4 @@
-import { DEFAULT_THEME_ID, getThemeById, type ThemeId } from '~/config/themes'
-
-const STORAGE_KEY = 'web-toolbox-theme'
+import { DEFAULT_THEME_ID, getThemeById, THEME_STORAGE_KEY, type ThemeId } from '~/config/themes'
 
 export const useTheme = () => {
   const themeId = useState<ThemeId>('theme-id', () => DEFAULT_THEME_ID)
@@ -27,12 +25,12 @@ export const useTheme = () => {
     root.style.setProperty('--color-accent-text', theme.colors.buttonText)
     root.style.setProperty('--color-accent-soft', theme.colors.soft)
 
-    if (persist) localStorage.setItem(STORAGE_KEY, theme.id)
+    if (persist) localStorage.setItem(THEME_STORAGE_KEY, theme.id)
   }
 
   const hydrateTheme = () => {
     if (!import.meta.client || hydrated.value) return
-    applyTheme(localStorage.getItem(STORAGE_KEY) ?? DEFAULT_THEME_ID, false)
+    applyTheme(localStorage.getItem(THEME_STORAGE_KEY) ?? DEFAULT_THEME_ID, false)
     hydrated.value = true
   }
 

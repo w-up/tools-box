@@ -1,3 +1,5 @@
+import { createThemeBootstrapScript } from './app/config/themeBootstrap'
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
@@ -11,6 +13,9 @@ export default defineNuxtConfig({
       meta: [
         { name: 'description', content: '轻量、安全、直接在浏览器中运行的网页工具箱。' },
         { name: 'theme-color', content: '#f5f5f2' },
+      ],
+      script: [
+        { textContent: createThemeBootstrapScript() },
       ],
     },
   },

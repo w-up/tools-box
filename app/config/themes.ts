@@ -22,6 +22,7 @@ export interface ThemePreset {
 }
 
 export const DEFAULT_THEME_ID: ThemeId = 'light'
+export const THEME_STORAGE_KEY = 'web-toolbox-theme'
 
 export const THEME_PRESETS: ThemePreset[] = [
   {
