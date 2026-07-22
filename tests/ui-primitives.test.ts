@@ -36,6 +36,16 @@ describe('UiToast 记录', () => {
   })
 })
 
+describe('全站 Header', () => {
+  it('滚动页面时固定在视口顶部', () => {
+    const source = readFileSync(resolve(process.cwd(), 'app/assets/css/main.css'), 'utf8')
+    const headerRule = source.match(/\.site-header\s*\{[^}]+\}/)?.[0]
+
+    expect(headerRule).toContain('position: sticky;')
+    expect(headerRule).toContain('top: 0;')
+  })
+})
+
 describe('UiSelect 下拉层', () => {
   it('通过 Teleport 脱离卡片 overflow 裁剪并使用 fixed 定位', () => {
     const source = readFileSync(resolve(process.cwd(), 'app/components/ui/UiSelect.vue'), 'utf8')
