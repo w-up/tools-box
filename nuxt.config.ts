@@ -4,6 +4,18 @@ import { createThemeBootstrapScript } from './app/config/themeBootstrap'
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: true },
+  build: {
+    transpile: ['@jsquash/avif', '@jsquash/jpeg', '@jsquash/webp'],
+  },
+  vite: {
+    optimizeDeps: {
+      include: ['jszip'],
+      exclude: ['@jsquash/avif', '@jsquash/jpeg', '@jsquash/webp'],
+    },
+    worker: {
+      format: 'es',
+    },
+  },
   ssr: true,
   css: ['~/assets/css/main.css'],
   app: {

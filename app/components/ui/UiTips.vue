@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { clampToViewport, resolveTipsPlacement, type ResolvedTipsPlacement, type TipsPlacement } from '~/utils/uiPosition'
+import { clampToViewport, isContentOverflowing, resolveTipsPlacement, type ResolvedTipsPlacement, type TipsPlacement } from '~/utils/uiPosition'
 
 interface Props {
   text?: string
@@ -36,6 +36,14 @@ let resizeObserver: ResizeObserver | null = null
 
 const isTouch = () => import.meta.client && (window.matchMedia('(hover: none)').matches || navigator.maxTouchPoints > 0)
 const effectiveTrigger = computed(() => props.trigger === 'auto' ? (isTouch() ? 'click' : 'hover') : props.trigger)
+
+// 检查 trigger 及其子元素，只有内容被截断时才允许显示完整提示
+const hasOverflow = () => {
+  const anchor = anchorRef.value
+  if (!anchor) return false
+  const elements = [anchor, ...Array.from(anchor.querySelectorAll<HTMLElement>('*'))]
+  return elements.some(element => isContentOverflowing(element))
+}
 
 const updatePosition = async () => {
   await nextTick()
@@ -85,7 +93,7 @@ const updatePosition = async () => {
 }
 
 const show = () => {
-  if (props.disabled) return
+  if (props.disabled || !hasOverflow()) return
   open.value = true
   requestAnimationFrame(updatePosition)
 }
@@ -94,6 +102,7 @@ const hide = () => {
 }
 const toggle = () => {
   if (props.disabled || effectiveTrigger.value !== 'click') return
+  if (!open.value && !hasOverflow()) return
   open.value = !open.value
   if (open.value) requestAnimationFrame(updatePosition)
 }

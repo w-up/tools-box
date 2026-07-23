@@ -251,12 +251,6 @@ onBeforeUnmount(() => {
             <p>导入图片</p>
             <h2 id="import-title">准备参考组与待改名组</h2>
           </div>
-          <UiTips
-            text="A 组图片的主文件名会成为匹配成功后的命名来源；B 组保持自己的扩展名。"
-            placement="bottom"
-          >
-            <button class="workbench-step__help" type="button" aria-label="查看导入规则">?</button>
-          </UiTips>
           <span>A 组提供名称，B 组接受新名称</span>
         </div>
 
@@ -460,7 +454,7 @@ onBeforeUnmount(() => {
 
 .workbench-step__heading {
   display: grid;
-  grid-template-columns: 40px 1fr auto auto;
+  grid-template-columns: 40px 1fr auto;
   align-items: center;
   gap: 14px;
   margin-bottom: 22px;
@@ -497,20 +491,6 @@ onBeforeUnmount(() => {
 .workbench-step__heading > span {
   color: var(--color-muted);
   font-size: 11px;
-}
-
-.workbench-step__help {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  place-items: center;
-  border: 1px solid var(--color-line);
-  border-radius: 50%;
-  color: var(--color-accent);
-  background: var(--color-surface);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 700;
 }
 
 .workbench-batches {

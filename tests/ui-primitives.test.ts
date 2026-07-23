@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { clampToViewport, resolveTipsPlacement } from '../app/utils/uiPosition'
+import { clampToViewport, isContentOverflowing, resolveTipsPlacement } from '../app/utils/uiPosition'
 import { createToastRecord, DEFAULT_TOAST_DURATION } from '../app/utils/uiToast'
 
 describe('UiTips 位置计算', () => {
@@ -18,6 +18,11 @@ describe('UiTips 位置计算', () => {
 
   it('把弹层坐标限制在视口安全边距内', () => {
     expect(clampToViewport(-20, 500, 180, 440, 8)).toEqual({ left: 8, top: 252 })
+  })
+
+  it('只在内容实际超出可见区域时启用提示', () => {
+    expect(isContentOverflowing({ scrollWidth: 120, clientWidth: 120, scrollHeight: 20, clientHeight: 20 })).toBe(false)
+    expect(isContentOverflowing({ scrollWidth: 180, clientWidth: 120, scrollHeight: 20, clientHeight: 20 })).toBe(true)
   })
 })
 
@@ -53,7 +58,7 @@ describe('UiSelect 下拉层', () => {
     expect(source).toContain('position:fixed')
   })
 
-  it('图片选项通过高层级 UiTips 同时预览图片和文件名', () => {
+  it('截断的图片选项通过高层级 UiTips 同时预览图片和文件名', () => {
     const selectSource = readFileSync(resolve(process.cwd(), 'app/components/ui/UiSelect.vue'), 'utf8')
     const tipsSource = readFileSync(resolve(process.cwd(), 'app/components/ui/UiTips.vue'), 'utf8')
     const matchSource = readFileSync(resolve(process.cwd(), 'app/components/image-rename/MatchResultItem.vue'), 'utf8')
@@ -62,7 +67,18 @@ describe('UiSelect 下拉层', () => {
     expect(selectSource).toContain('<template v-if="option.imageUrl" #content>')
     expect(selectSource).toContain(':src="option.imageUrl"')
     expect(matchSource).toContain('imageUrl: asset.previewUrl')
+    expect(tipsSource).toContain('!hasOverflow()')
     expect(tipsSource).toContain('z-index: 320')
+  })
+})
+
+describe('UiFileDropzone 文件与目录入口', () => {
+  it('可同时保留普通多文件选择和独立文件夹选择按钮', () => {
+    const source = readFileSync(resolve(process.cwd(), 'app/components/ui/UiFileDropzone.vue'), 'utf8')
+
+    expect(source).toContain('allowDirectoryPicker?: boolean')
+    expect(source).toContain('ref="folderInput"')
+    expect(source).toContain('选择文件夹')
   })
 })
 

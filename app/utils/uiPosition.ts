@@ -23,6 +23,18 @@ interface PlacementInput {
   offset: number
 }
 
+interface OverflowSize {
+  scrollWidth: number
+  clientWidth: number
+  scrollHeight: number
+  clientHeight: number
+}
+
+// 仅在内容实际超出可见区域时启用完整信息提示
+export const isContentOverflowing = ({ scrollWidth, clientWidth, scrollHeight, clientHeight }: OverflowSize) => (
+  scrollWidth > clientWidth + 1 || scrollHeight > clientHeight + 1
+)
+
 export const resolveTipsPlacement = ({ requested, trigger, panel, viewport, offset }: PlacementInput): ResolvedTipsPlacement => {
   if (requested !== 'auto') return requested
   const spaces = {

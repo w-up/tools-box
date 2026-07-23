@@ -4,11 +4,11 @@ export const tools: ToolItem[] = [
   {
     index: '01',
     title: '图片压缩',
-    description: '在浏览器中压缩图片，后续支持质量、尺寸和输出格式设置。',
+    description: '在浏览器本地批量压缩图片，支持质量、输出格式与原目录结构 ZIP 导出。',
     keywords: ['压缩', '体积', '质量', '尺寸', '格式', 'compress'],
     to: '/tools/image-compressor',
     category: '图片',
-    status: 'planned',
+    status: 'available',
   },
   {
     index: '02',

@@ -28,6 +28,7 @@ interface Props {
   accept?: string
   disabled?: boolean
   directory?: boolean
+  allowDirectoryPicker?: boolean
   title?: string
   description?: string
   draggingText?: string
@@ -38,6 +39,7 @@ const props = withDefaults(defineProps<Props>(), {
   accept: '',
   disabled: false,
   directory: false,
+  allowDirectoryPicker: false,
   title: '拖拽文件或文件夹至此',
   description: '或点击选择文件',
   draggingText: '松开即可导入',
@@ -49,6 +51,7 @@ const emit = defineEmits<{
 }>()
 
 const fileInput = ref<HTMLInputElement>()
+const folderInput = ref<HTMLInputElement>()
 const isDragging = ref(false)
 const detailFile = ref<DroppedFile | null>(null)
 const detailOpen = ref(false)
@@ -148,6 +151,10 @@ const openFilePicker = () => {
   if (!props.disabled) fileInput.value?.click()
 }
 
+const openFolderPicker = () => {
+  if (!props.disabled) folderInput.value?.click()
+}
+
 // 在统一弹窗中展示图片像素或文本源码，便于导入前核对文件
 const openDetails = async (item: DroppedFile) => {
   detailFile.value = item
@@ -175,7 +182,7 @@ onBeforeUnmount(() => {
   if (detailUrl.value) URL.revokeObjectURL(detailUrl.value)
 })
 
-// 目录入口按需启用 webkitdirectory，普通图片入口继续支持多文件选择
+// 目录专用模式改造主入口，混合模式则保留独立文件与文件夹按钮
 onMounted(() => {
   if (props.directory && fileInput.value) fileInput.value.setAttribute('webkitdirectory', '')
 })
@@ -202,7 +209,9 @@ onMounted(() => {
       </div>
       <strong>{{ isDragging ? draggingText : title }}</strong>
       <span>{{ description }}</span>
+      <button v-if="allowDirectoryPicker" type="button" class="ui-file-dropzone__folder-button" :disabled="disabled" @click.stop="openFolderPicker">选择文件夹</button>
       <input ref="fileInput" hidden type="file" :accept="accept" multiple @change="emitInputFiles">
+      <input v-if="allowDirectoryPicker" ref="folderInput" hidden type="file" :accept="accept" multiple webkitdirectory @change="emitInputFiles">
     </div>
 
     <div v-if="treeRows.length > 0" class="ui-file-dropzone__tree" aria-label="已导入文件">
@@ -234,7 +243,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.ui-file-dropzone-shell { min-width:0; }.ui-file-dropzone { display:flex; min-height:174px; flex-direction:column; align-items:center; justify-content:center; border:2px dashed var(--color-accent); border-radius:12px; padding:26px 24px; color:var(--color-text); background:var(--color-surface); cursor:pointer; text-align:center; transition:border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }.ui-file-dropzone:hover,.ui-file-dropzone:focus-visible { border-color:var(--color-accent-hover); background:var(--color-accent-soft); box-shadow:0 0 0 4px color-mix(in srgb, var(--color-accent) 14%, transparent); outline:0; }.ui-file-dropzone--dragging { border-style:solid; border-color:var(--color-accent-hover); background:var(--color-accent-soft); box-shadow:0 0 0 5px color-mix(in srgb, var(--color-accent) 18%, transparent); transform:translateY(-1px); }.ui-file-dropzone--disabled { border-color:var(--color-line); color:var(--color-muted); background:var(--color-bg); cursor:not-allowed; }.ui-file-dropzone__icon { width:44px; height:44px; margin-bottom:13px; color:var(--color-accent); transition:transform 160ms ease; }.ui-file-dropzone:hover .ui-file-dropzone__icon,.ui-file-dropzone--dragging .ui-file-dropzone__icon { transform:translateY(-2px) scale(1.06); }.ui-file-dropzone__icon svg { width:100%; height:100%; stroke:currentColor; stroke-linecap:round; stroke-linejoin:round; stroke-width:3; }.ui-file-dropzone strong { color:var(--color-text); font-size:15px; font-weight:650; line-height:1.45; }.ui-file-dropzone span { margin-top:5px; color:var(--color-muted); font-size:12px; line-height:1.5; }
+.ui-file-dropzone-shell { min-width:0; }.ui-file-dropzone { display:flex; min-height:174px; flex-direction:column; align-items:center; justify-content:center; border:2px dashed var(--color-accent); border-radius:12px; padding:26px 24px; color:var(--color-text); background:var(--color-surface); cursor:pointer; text-align:center; transition:border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }.ui-file-dropzone:hover,.ui-file-dropzone:focus-visible { border-color:var(--color-accent-hover); background:var(--color-accent-soft); box-shadow:0 0 0 4px color-mix(in srgb, var(--color-accent) 14%, transparent); outline:0; }.ui-file-dropzone--dragging { border-style:solid; border-color:var(--color-accent-hover); background:var(--color-accent-soft); box-shadow:0 0 0 5px color-mix(in srgb, var(--color-accent) 18%, transparent); transform:translateY(-1px); }.ui-file-dropzone--disabled { border-color:var(--color-line); color:var(--color-muted); background:var(--color-bg); cursor:not-allowed; }.ui-file-dropzone__icon { width:44px; height:44px; margin-bottom:13px; color:var(--color-accent); transition:transform 160ms ease; }.ui-file-dropzone:hover .ui-file-dropzone__icon,.ui-file-dropzone--dragging .ui-file-dropzone__icon { transform:translateY(-2px) scale(1.06); }.ui-file-dropzone__icon svg { width:100%; height:100%; stroke:currentColor; stroke-linecap:round; stroke-linejoin:round; stroke-width:3; }.ui-file-dropzone strong { color:var(--color-text); font-size:15px; font-weight:650; line-height:1.45; }.ui-file-dropzone span { margin-top:5px; color:var(--color-muted); font-size:12px; line-height:1.5; }.ui-file-dropzone__folder-button { min-height:34px; margin-top:12px; border:1px solid var(--color-line); border-radius:8px; padding-inline:12px; color:var(--color-accent); background:var(--color-surface-elevated); cursor:pointer; font-size:10px; font-weight:650; }.ui-file-dropzone__folder-button:hover:not(:disabled) { border-color:var(--color-accent); background:var(--color-accent-soft); }.ui-file-dropzone__folder-button:disabled { color:var(--color-muted); cursor:not-allowed; }
 .ui-file-dropzone__tree { overflow:auto; max-height:220px; margin-top:10px; border:1px solid var(--color-line); border-radius:10px; background:var(--color-bg); }.ui-file-dropzone__tree-row { display:flex; min-width:0; min-height:34px; align-items:center; gap:7px; padding:0 10px 0 calc(10px + var(--tree-depth) * 16px); border-bottom:1px solid var(--color-line); }.ui-file-dropzone__tree-row:last-child { border-bottom:0; }.ui-file-dropzone__tree-icon { width:14px; flex:none; color:var(--color-accent); font-size:12px; text-align:center; }.ui-file-dropzone__tree-label { display:block; overflow:hidden; flex:1; color:var(--color-text); font-size:11px; text-align:left; text-overflow:ellipsis; white-space:nowrap; }.ui-file-dropzone__tree-row :deep(.ui-tips-anchor) { min-width:0; flex:1; }.ui-file-dropzone__preview { display:grid; width:28px; height:28px; flex:none; place-items:center; border:0; border-radius:6px; color:var(--color-muted); background:transparent; cursor:pointer; }.ui-file-dropzone__preview:hover { color:var(--color-accent); background:var(--color-accent-soft); }.ui-file-dropzone__preview svg { width:16px; height:16px; stroke:currentColor; stroke-linecap:round; stroke-linejoin:round; stroke-width:1.8; }
 .ui-file-dropzone__detail-state { display:grid; min-height:240px; place-items:center; color:var(--color-muted); font-size:12px; }.ui-file-dropzone__image-preview { display:grid; min-height:360px; place-items:center; overflow:auto; padding:24px; background-color:var(--color-bg); background-image:linear-gradient(45deg,var(--color-line) 25%,transparent 25%),linear-gradient(-45deg,var(--color-line) 25%,transparent 25%),linear-gradient(45deg,transparent 75%,var(--color-line) 75%),linear-gradient(-45deg,transparent 75%,var(--color-line) 75%); background-position:0 0,0 8px,8px -8px,-8px 0; background-size:16px 16px; }.ui-file-dropzone__image-preview img { display:block; max-width:100%; max-height:60vh; object-fit:contain; }.ui-file-dropzone__code-preview { max-height:60vh; margin:0; overflow:auto; padding:20px; color:var(--color-text); background:var(--color-bg); font:12px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre; }
 @media (max-width:640px) { .ui-file-dropzone { min-height:164px; padding:22px 18px; }.ui-file-dropzone__tree { max-height:190px; }.ui-file-dropzone__image-preview { min-height:260px; padding:14px; } }
