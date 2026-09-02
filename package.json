@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@11.9.0",
   "scripts": {
-    "dev": "nuxt dev --host",
+    "dev": "nuxt dev --host --open",
     "build": "nuxt build",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
