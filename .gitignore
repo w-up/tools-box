@@ -4,10 +4,14 @@
 .data
 .nuxt
 .nuxt*
+.vite*
+.output*
 .nitro
 .cache
 node_modules/.cache/tools-box-process.lock
 node_modules/.cache/tools-box-process.lock.stale-*
+node_modules/.cache/tools-box-*.lock
+node_modules/.cache/tools-box-*.lock.stale-*
 dist
 
 # Node dependencies

@@ -56,13 +56,16 @@ pnpm dev
 
 开发地址默认是 `http://localhost:3000`。
 
-开发服务、测试、类型检查、构建、静态生成和 `postinstall` 会通过项目级文件锁串行执行，避免多个进程同时写入 `.nuxt`、`.output` 或 Nuxt/Vite cache。若已有任务占用锁，新的任务会直接拒绝并提示占用者，不会删除或覆盖正在使用的锁。
+开发服务、测试、类型检查、构建、静态生成、lint 和 `postinstall` 会使用带 scope 的项目级目录，分别隔离 `.nuxt`、`.output` 和 Nuxt/Vite cache。`dev` 与 `build` 使用不同锁和不同目录，可以并行运行；`build`/`generate`/`preview` 仍通过共享输出锁保护最终 `.output` 的切换。若已有同类任务占用锁，新的任务会直接拒绝并提示占用者，不会删除或覆盖正在使用的锁。锁目录由 AI 工具和本地命令共同使用，因此通过 `pnpm build`、`pnpm generate` 启动的任务也会与其他执行入口互斥。
+
+构建和静态生成先写入带运行标识的临时 `.output.build-*` 目录，校验 `public/index.html` 后再原子替换最终 `.output`；失败时保留上一份可用产物。隔离目录和锁均由 `.gitignore` 排除。
 
 ## 验证
 
 ```bash
 pnpm test
 pnpm test:concurrency
+pnpm lint
 pnpm typecheck
 pnpm generate
 ```

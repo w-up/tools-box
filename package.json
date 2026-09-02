@@ -5,13 +5,14 @@
   "packageManager": "pnpm@11.9.0",
   "scripts": {
     "lock": "node scripts/with-project-lock.mjs",
-    "dev": "pnpm lock --label \"Nuxt dev server\" -- nuxt dev --host --open",
-    "build": "pnpm lock --label \"Nuxt build\" -- nuxt build",
-    "generate": "pnpm lock --label \"Nuxt generate\" -- nuxt generate",
-    "preview": "pnpm lock --label \"Nuxt preview\" -- nuxt preview",
-    "test": "pnpm lock --label \"Vitest\" -- vitest run",
-    "typecheck": "pnpm lock --label \"Nuxt typecheck\" -- nuxt typecheck",
-    "postinstall": "pnpm lock --label \"Nuxt prepare\" -- nuxt prepare",
+    "dev": "pnpm lock --scope dev --lock-dir node_modules/.cache/tools-box-dev.lock --label \"Nuxt dev server\" -- nuxt dev --host --open",
+    "build": "pnpm lock --scope build --lock-dir node_modules/.cache/tools-box-output.lock --label \"Nuxt build\" --promote-output -- nuxt build",
+    "generate": "pnpm lock --scope generate --lock-dir node_modules/.cache/tools-box-output.lock --label \"Nuxt generate\" --promote-output -- nuxt generate",
+    "preview": "pnpm lock --scope preview --lock-dir node_modules/.cache/tools-box-output.lock --label \"Nuxt preview\" --output-dir .output -- nuxt preview",
+    "test": "pnpm lock --scope test --lock-dir node_modules/.cache/tools-box-test.lock --label \"Vitest\" -- vitest run",
+    "typecheck": "pnpm lock --scope typecheck --lock-dir node_modules/.cache/tools-box-typecheck.lock --label \"Nuxt typecheck\" -- node scripts/run-typecheck.mjs",
+    "lint": "pnpm lock --scope lint --lock-dir node_modules/.cache/tools-box-lint.lock --label \"Repository lint\" -- node scripts/lint.mjs",
+    "postinstall": "pnpm lock --scope prepare --lock-dir node_modules/.cache/tools-box-prepare.lock --label \"Nuxt prepare\" -- nuxt prepare",
     "test:concurrency": "node --test scripts/with-project-lock.test.mjs"
   },
   "dependencies": {
@@ -24,8 +25,13 @@
     "vue-router": "^5.1.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.9.1",
+    "eslint-plugin-vue": "^10.10.0",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.69.0",
     "vitest": "^4.1.9",
+    "vue-eslint-parser": "^10.4.1",
     "vue-tsc": "^3.3.7"
   }
 }

@@ -1,13 +1,22 @@
 import { createThemeBootstrapScript } from './app/config/themeBootstrap'
 
+const runtimeEnv = (globalThis as typeof globalThis & {
+  process?: { env?: Record<string, string | undefined> }
+}).process?.env ?? {}
+const nuxtBuildDir = runtimeEnv.NUXT_BUILD_DIR || '.nuxt'
+const nitroOutputDir = runtimeEnv.NITRO_OUTPUT_DIR || '.output'
+const viteCacheDir = runtimeEnv.VITE_CACHE_DIR
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
+  buildDir: nuxtBuildDir,
   devtools: { enabled: true },
   build: {
     transpile: ['@jsquash/avif', '@jsquash/jpeg', '@jsquash/webp'],
   },
   vite: {
+    ...(viteCacheDir ? { cacheDir: viteCacheDir } : {}),
     optimizeDeps: {
       include: ['jszip'],
       exclude: ['@jsquash/avif', '@jsquash/jpeg', '@jsquash/webp'],
@@ -32,6 +41,9 @@ export default defineNuxtConfig({
     },
   },
   nitro: {
+    output: {
+      dir: nitroOutputDir,
+    },
     prerender: {
       crawlLinks: true,
       failOnError: true,
