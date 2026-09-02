@@ -87,6 +87,15 @@ const isProcessAlive = (pid) => {
 
 const processStartTime = (pid) => {
   try {
+    // Windows 无 POSIX ps，通过 PowerShell 读取进程启动时间（'o' 为固定 ISO 往返格式，便于稳定比较）
+    if (process.platform === 'win32') {
+      const output = execFileSync(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-Command', `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToString('o')`],
+        { encoding: 'utf8' },
+      )
+      return output.trim() || null
+    }
     return execFileSync('ps', ['-p', String(pid), '-o', 'lstart='], { encoding: 'utf8' }).trim() || null
   }
   catch {
@@ -204,6 +213,23 @@ const scopedBuildDir = {
   lint: '.nuxt-lint',
 }[scope] || '.nuxt'
 const scopedViteCacheDir = `node_modules/.cache/tools-box-vite-${scope}`
+
+// Vite 8 的 oxc 转换会自动发现根 tsconfig.json 并加载其 references 指向的
+// .nuxt/tsconfig.*.json；buildDir 重定向到 .nuxt-* 后这些文件不存在，会抛
+// TSCONFIG_ERROR（plugin-vue 在 build 阶段不走 config.oxc，无法用选项禁用）。
+// 这里保证占位文件存在：构建期转换只读 compilerOptions，默认值与 vite 7 行为一致，
+// 真实类型检查由 typecheck 作用域基于作用域内生成的 tsconfig 独立完成。
+const ensureNuxtTsconfigStubs = () => {
+  const nuxtDir = join(projectRoot, '.nuxt')
+  mkdirSync(nuxtDir, { recursive: true })
+  for (const name of ['tsconfig.app.json', 'tsconfig.server.json', 'tsconfig.shared.json', 'tsconfig.node.json']) {
+    const target = join(nuxtDir, name)
+    if (!existsSync(target)) {
+      writeFileSync(target, '{\n  "compilerOptions": {}\n}\n', 'utf8')
+    }
+  }
+}
+ensureNuxtTsconfigStubs()
 
 const childEnv = {
   ...process.env,
@@ -352,6 +378,8 @@ try {
     env: childEnv,
     stdio: 'inherit',
     detached: process.platform !== 'win32',
+    // Windows 下 .bin 里只有 nuxt.CMD 等 shell 包装，需要 shell 解析 PATH 中的可执行文件
+    shell: process.platform === 'win32',
   })
   recordChildOwner(child.pid)
 }

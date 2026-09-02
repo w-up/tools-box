@@ -2,7 +2,7 @@
   "name": "web-toolbox",
   "type": "module",
   "private": true,
-  "packageManager": "pnpm@11.9.0",
+  "packageManager": "pnpm@11.25.0",
   "scripts": {
     "lock": "node scripts/with-project-lock.mjs",
     "dev": "pnpm lock --scope dev --lock-dir node_modules/.cache/tools-box-dev.lock --label \"Nuxt dev server\" -- nuxt dev --host --open",
@@ -20,9 +20,9 @@
     "@jsquash/jpeg": "^1.6.0",
     "@jsquash/webp": "^1.5.0",
     "jszip": "^3.10.1",
-    "nuxt": "^4.4.8",
-    "vue": "^3.5.39",
-    "vue-router": "^5.1.0"
+    "nuxt": "^4.5.2",
+    "vue": "^3.5.42",
+    "vue-router": "^5.3.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -30,8 +30,8 @@
     "eslint-plugin-vue": "^10.10.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.69.0",
-    "vitest": "^4.1.9",
+    "vitest": "^4.1.11",
     "vue-eslint-parser": "^10.4.1",
-    "vue-tsc": "^3.3.7"
+    "vue-tsc": "^3.3.11"
   }
 }

@@ -17,6 +17,13 @@ export default defineNuxtConfig({
   },
   vite: {
     ...(viteCacheDir ? { cacheDir: viteCacheDir } : {}),
+    // Vite 8 的 oxc 转换会自动发现根 tsconfig.json 并加载其 references 指向的
+    // .nuxt/tsconfig.*.json；buildDir 被重定向到 .nuxt-* 作用域目录后该文件不存在，
+    // 会抛 TSCONFIG_ERROR。构建期转换不依赖这些编译选项（类型检查由 vue-tsc 独立完成），
+    // 显式禁用 tsconfig 发现。
+    oxc: {
+      tsconfig: false,
+    } as never,
     optimizeDeps: {
       include: ['jszip'],
       exclude: ['@jsquash/avif', '@jsquash/jpeg', '@jsquash/webp'],
