@@ -4,13 +4,15 @@
   "private": true,
   "packageManager": "pnpm@11.9.0",
   "scripts": {
-    "dev": "nuxt dev --host --open",
-    "build": "nuxt build",
-    "generate": "nuxt generate",
-    "preview": "nuxt preview",
-    "test": "vitest run",
-    "typecheck": "nuxt typecheck",
-    "postinstall": "nuxt prepare"
+    "lock": "node scripts/with-project-lock.mjs",
+    "dev": "pnpm lock --label \"Nuxt dev server\" -- nuxt dev --host --open",
+    "build": "pnpm lock --label \"Nuxt build\" -- nuxt build",
+    "generate": "pnpm lock --label \"Nuxt generate\" -- nuxt generate",
+    "preview": "pnpm lock --label \"Nuxt preview\" -- nuxt preview",
+    "test": "pnpm lock --label \"Vitest\" -- vitest run",
+    "typecheck": "pnpm lock --label \"Nuxt typecheck\" -- nuxt typecheck",
+    "postinstall": "pnpm lock --label \"Nuxt prepare\" -- nuxt prepare",
+    "test:concurrency": "node --test scripts/with-project-lock.test.mjs"
   },
   "dependencies": {
     "@jsquash/avif": "^2.1.1",

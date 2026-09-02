@@ -1,9 +1,13 @@
 # Nuxt dev/build outputs
 .output
+.output*
 .data
 .nuxt
+.nuxt*
 .nitro
 .cache
+node_modules/.cache/tools-box-process.lock
+node_modules/.cache/tools-box-process.lock.stale-*
 dist
 
 # Node dependencies

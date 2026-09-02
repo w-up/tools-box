@@ -56,10 +56,13 @@ pnpm dev
 
 开发地址默认是 `http://localhost:3000`。
 
+开发服务、测试、类型检查、构建、静态生成和 `postinstall` 会通过项目级文件锁串行执行，避免多个进程同时写入 `.nuxt`、`.output` 或 Nuxt/Vite cache。若已有任务占用锁，新的任务会直接拒绝并提示占用者，不会删除或覆盖正在使用的锁。
+
 ## 验证
 
 ```bash
 pnpm test
+pnpm test:concurrency
 pnpm typecheck
 pnpm generate
 ```
