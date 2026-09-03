@@ -26,6 +26,9 @@ logs
 .fleet
 .idea
 
+# 本地浏览器冒烟测试产物
+.playwright-cli
+
 # Local env files
 .env
 .env.*

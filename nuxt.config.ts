@@ -45,6 +45,10 @@ export default defineNuxtConfig({
       script: [
         { textContent: createThemeBootstrapScript() },
       ],
+      // 无 JS 环境下取消首页滚动渐入的默认隐藏，保证内容可见
+      noscript: [
+        { innerHTML: '<style>.reveal{opacity:1 !important;transform:none !important}</style>' },
+      ],
     },
   },
   nitro: {
