@@ -28,4 +28,13 @@ export const tools: ToolItem[] = [
     category: '图片',
     status: 'available',
   },
+  {
+    index: '04',
+    title: '图片批量缩放',
+    description: '按自定义像素批量调整图片尺寸，可锁定原始比例，支持 WebP/JPEG/PNG 输出。',
+    keywords: ['缩放', '调整尺寸', '改大小', '批量尺寸', 'resize', '像素'],
+    to: '/tools/image-resizer',
+    category: '图片',
+    status: 'available',
+  },
 ]

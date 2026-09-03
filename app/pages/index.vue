@@ -20,19 +20,21 @@ const toolIcons: Record<string, string> = {
   '/tools/image-compressor': 'compress',
   '/tools/image-compare-rename': 'compare',
   '/tools/image-asset-migration': 'migrate',
+  '/tools/image-resizer': 'resize',
 }
 
 // 跑马灯文案
 const marqueeItems = [
-  '本地优先', '零上传', '图片压缩', '智能对比改名', '资源迁移', '隐私安全',
+  '本地优先', '零上传', '图片压缩', '智能对比改名', '资源迁移', '批量缩放', '隐私安全',
   '静态部署', '主题换肤', '开箱即用',
 ]
 
-// 单一职责卡里的三条能力
+// 单一职责卡里的能力清单
 const focusRows = [
   { icon: 'compress', text: '批量压缩，输出格式与目录结构自由控制' },
   { icon: 'compare', text: '按视觉内容匹配两组图片，统一命名' },
   { icon: 'migrate', text: '合并重复图片，并同步更新代码引用' },
+  { icon: 'resize', text: '按自定义像素批量缩放，可锁定原始比例' },
 ]
 
 // 三步流程
@@ -50,7 +52,7 @@ const steps = [
   {
     index: '03',
     title: '导出结果',
-    description: '压缩、改名或迁移完成后，一键导出本地结果与脚本。',
+    description: '压缩、缩放、改名或迁移完成后，一键导出本地结果与脚本。',
   },
 ]
 
@@ -201,6 +203,10 @@ const vCountTo = {
               <rect x="13.5" y="6" width="8" height="12" rx="1.5" />
               <path d="m10 12h4" />
             </svg>
+            <svg v-else-if="toolIcons[tool.to] === 'resize'" viewBox="0 0 24 24" fill="none">
+              <path d="M4 4h7M4 4v7M4 4l7 7" />
+              <path d="M20 20h-7M20 20v-7M20 20l-7-7" />
+            </svg>
             <svg v-else viewBox="0 0 24 24" fill="none">
               <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 17z" />
               <path d="m12 11v4M10 13l2-2 2 2" />
@@ -275,6 +281,7 @@ const vCountTo = {
                 <svg viewBox="0 0 24 24" fill="none">
                   <template v-if="row.icon === 'compress'"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m9 12h6M12 9v6" /></template>
                   <template v-else-if="row.icon === 'compare'"><rect x="2.5" y="6" width="8" height="12" rx="1.5" /><rect x="13.5" y="6" width="8" height="12" rx="1.5" /><path d="m10 12h4" /></template>
+                  <template v-else-if="row.icon === 'resize'"><path d="M4 4h7M4 4v7M4 4l7 7" /><path d="M20 20h-7M20 20v-7M20 20l-7-7" /></template>
                   <template v-else><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 17z" /><path d="m12 11v4M10 13l2-2 2 2" /></template>
                 </svg>
               </span>

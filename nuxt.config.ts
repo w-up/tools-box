@@ -58,7 +58,7 @@ export default defineNuxtConfig({
     prerender: {
       crawlLinks: true,
       failOnError: true,
-      routes: ['/', '/tools/image-compressor', '/tools/image-compare-rename', '/tools/image-asset-migration'],
+      routes: ['/', '/tools/image-compressor', '/tools/image-compare-rename', '/tools/image-asset-migration', '/tools/image-resizer'],
     },
   },
 })
